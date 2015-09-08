@@ -22,6 +22,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <assert.h>
@@ -78,7 +79,6 @@ nwamd_event_method_t ncu_event_methods[] =
 	{ NWAM_EVENT_TYPE_OBJECT_FINI, nwamd_ncu_handle_fini_event },
 	{ NWAM_EVENT_TYPE_OBJECT_ACTION, nwamd_ncu_handle_action_event },
 	{ NWAM_EVENT_TYPE_OBJECT_STATE, nwamd_ncu_handle_state_event },
-	{ NWAM_EVENT_TYPE_PERIODIC_SCAN, nwamd_ncu_handle_periodic_scan_event },
 	{ NWAM_EVENT_TYPE_NOOP, NULL }
 };
 

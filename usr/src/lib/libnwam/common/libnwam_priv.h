@@ -21,6 +21,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -59,8 +60,7 @@ typedef enum {
 	NWAM_REQUEST_TYPE_PRIORITY_GROUP,
 	NWAM_REQUEST_TYPE_WLAN_SCAN,
 	NWAM_REQUEST_TYPE_WLAN_SCAN_RESULTS,
-	NWAM_REQUEST_TYPE_WLAN_SELECT,
-	NWAM_REQUEST_TYPE_WLAN_SET_KEY
+	NWAM_REQUEST_TYPE_WLAN_SELECT
 } nwam_request_type_t;
 
 /* Status returned by nwamd door */
@@ -104,14 +104,10 @@ typedef union {
 	/* Used for WLAN request/responses */
 	struct {
 		char nwdad_name[NWAM_MAX_NAME_LEN];
-		char nwdad_essid[NWAM_MAX_NAME_LEN];
-		char nwdad_bssid[NWAM_MAX_NAME_LEN];
-		uint32_t nwdad_security_mode;
-		char nwdad_key[NWAM_MAX_NAME_LEN];
-		uint_t nwdad_keyslot;
-		boolean_t nwdad_add_to_known_wlans;
-		uint_t nwdad_num_wlans;
 		nwam_wlan_t nwdad_wlans[NWAMD_MAX_NUM_WLANS];
+		uint_t nwdad_num_wlans;
+		dladm_wlan_key_t nwdad_key;
+		dladm_wlan_eap_t nwdad_eap;
 	} nwdad_wlan_info;
 
 } nwamd_door_arg_data_t;

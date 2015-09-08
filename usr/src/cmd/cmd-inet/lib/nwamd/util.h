@@ -22,13 +22,13 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _UTIL_H
 #define	_UTIL_H
 
 #include <dhcpagent_ipc.h>
-#include <libdlwlan.h>
 #include <libnwam.h>
 #include <pthread.h>
 #include <string.h>
@@ -49,12 +49,8 @@
 #define	OUR_FMRI				NWAM_FMRI
 #define	OUR_PG					NWAM_PG
 #define	OUR_DEBUG_PROP_NAME			"debug"
-#define	OUR_AUTOCONF_PROP_NAME			"autoconf"
-#define	OUR_STRICT_BSSID_PROP_NAME		"strict_bssid"
 #define	OUR_ACTIVE_NCP_PROP_NAME		NWAM_PROP_ACTIVE_NCP
 #define	OUR_CONDITION_CHECK_INTERVAL_PROP_NAME	"condition_check_interval"
-#define	OUR_WIRELESS_SCAN_INTERVAL_PROP_NAME	"scan_interval"
-#define	OUR_WIRELESS_SCAN_LEVEL_PROP_NAME	"scan_level"
 #define	OUR_NCU_WAIT_TIME_PROP_NAME		"ncu_wait_time"
 #define	OUR_VERSION_PROP_NAME			"version"
 #define	NET_LOC_FMRI				"svc:/network/location:default"

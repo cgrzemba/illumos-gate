@@ -1,6 +1,7 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -50,7 +51,6 @@ static void ieee80211_setup_node(ieee80211com_t *, ieee80211_node_table_t *,
 static void ieee80211_node_reclaim(ieee80211_node_table_t *,
     ieee80211_node_t *);
 static void ieee80211_free_node_locked(ieee80211_node_t *);
-static void ieee80211_free_allnodes(ieee80211_node_table_t *);
 static void ieee80211_node_leave(ieee80211com_t *, ieee80211_node_t *);
 static void ieee80211_timeout_scan_candidates(ieee80211_node_table_t *);
 static void ieee80211_timeout_stations(ieee80211_node_table_t *);
@@ -243,8 +243,6 @@ ieee80211_begin_scan(ieee80211com_t *ic, boolean_t reset)
 	 * Clear scan state and flush any previously seen AP's.
 	 */
 	ieee80211_reset_scan(ic);
-	if (reset)
-		ieee80211_free_allnodes(&ic->ic_scan);
 
 	ic->ic_flags |= IEEE80211_F_SCAN;
 	IEEE80211_UNLOCK(ic);
@@ -295,12 +293,22 @@ ieee80211_next_scan(ieee80211com_t *ic)
 			ic->ic_bss->in_rates =
 			    ic->ic_sup_rates[ieee80211_chan2mode(ic, chan)];
 			IEEE80211_UNLOCK(ic);
-			ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
+			ieee80211_new_state(ic, IEEE80211_S_SCAN, 0);
 			return;
 		}
 	} while (chan != ic->ic_curchan);
 	IEEE80211_UNLOCK(ic);
-	ieee80211_end_scan(ic);
+
+	/*
+	 * some wifi device drivers need to cancel scan twice, now and
+	 * one more time after we move to INIT state
+	 */
+	ieee80211_cancel_scan(ic);
+	/*
+	 * We always need to return to INIT state when finished,
+	 * otherwise some device drivers won't be ready on the next active scan.
+	 */
+	ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
 }
 
 /*
@@ -468,172 +476,19 @@ ieee80211_match_bss(ieee80211com_t *ic, ieee80211_node_t *in)
 	((_rs).ir_rates[(_rs).ir_nrates - 1] & IEEE80211_RATE_VAL)
 
 /*
- * Compare the capabilities of node a with node b and decide which is
- * more desirable (return b if b is considered better than a).  Note
- * that we assume compatibility/usability has already been checked
- * so we don't need to (e.g. validate whether privacy is supported).
- * Used to select the best scan candidate for association in a BSS.
- *
- * Return desired node
- */
-static ieee80211_node_t *
-ieee80211_node_compare(ieee80211com_t *ic, ieee80211_node_t *a,
-    ieee80211_node_t *b)
-{
-	uint8_t maxa;
-	uint8_t maxb;
-	uint8_t rssia;
-	uint8_t rssib;
-
-	/* privacy support preferred */
-	if ((a->in_capinfo & IEEE80211_CAPINFO_PRIVACY) &&
-	    !(b->in_capinfo & IEEE80211_CAPINFO_PRIVACY)) {
-		return (a);
-	}
-	if (!(a->in_capinfo & IEEE80211_CAPINFO_PRIVACY) &&
-	    (b->in_capinfo & IEEE80211_CAPINFO_PRIVACY)) {
-		return (b);
-	}
-
-	/* compare count of previous failures */
-	if (b->in_fails != a->in_fails)
-		return ((a->in_fails > b->in_fails) ? b : a);
-
-	rssia = ic->ic_node_getrssi(a);
-	rssib = ic->ic_node_getrssi(b);
-	if (ABS(rssib - rssia) < IEEE80211_RSSI_CMP_THRESHOLD) {
-		/* best/max rate preferred if signal level close enough */
-		maxa = IEEE80211_MAXRATE(a->in_rates);
-		maxb = IEEE80211_MAXRATE(b->in_rates);
-		if (maxa != maxb)
-			return ((maxb > maxa) ? b : a);
-		/* for now just prefer 5Ghz band to all other bands */
-		if (IEEE80211_IS_CHAN_5GHZ(a->in_chan) &&
-		    !IEEE80211_IS_CHAN_5GHZ(b->in_chan)) {
-			return (a);
-		}
-		if (!IEEE80211_IS_CHAN_5GHZ(a->in_chan) &&
-		    IEEE80211_IS_CHAN_5GHZ(b->in_chan)) {
-			return (b);
-		}
-	}
-	/* all things being equal, compare signal level */
-	return ((rssib > rssia) ? b : a);
-}
-
-/*
  * Mark an ongoing scan stopped.
  */
 void
 ieee80211_cancel_scan(ieee80211com_t *ic)
 {
 	IEEE80211_LOCK(ic);
-	ieee80211_dbg(IEEE80211_MSG_SCAN, "ieee80211_cancel_scan()"
+	ieee80211_dbg(IEEE80211_MSG_SCAN, "ieee80211_cancel_scan(): "
 	    "end %s scan\n",
 	    (ic->ic_flags & IEEE80211_F_ASCAN) ?  "active" : "passive");
 	ic->ic_flags &= ~(IEEE80211_F_SCAN | IEEE80211_F_ASCAN);
 	cv_broadcast(&((ieee80211_impl_t *)ic->ic_private)->im_scan_cv);
 	IEEE80211_UNLOCK(ic);
 }
-
-/*
- * Complete a scan of potential channels. It is called by
- * ieee80211_next_scan() when the state machine has performed
- * a full cycle of scaning on all available radio channels.
- * ieee80211_end_scan() will inspect the node cache for suitable
- * APs found during scaning, and associate with one, should
- * the parameters of the node match those of the configuration
- * requested from userland.
- */
-void
-ieee80211_end_scan(ieee80211com_t *ic)
-{
-	ieee80211_node_table_t *nt = &ic->ic_scan;
-	ieee80211_node_t *in;
-	ieee80211_node_t *selbs;
-
-	ieee80211_cancel_scan(ic);
-	/* notify SCAN done */
-	ieee80211_notify(ic, EVENT_SCAN_RESULTS);
-	IEEE80211_LOCK(ic);
-
-	/*
-	 * Automatic sequencing; look for a candidate and
-	 * if found join the network.
-	 */
-	/* NB: unlocked read should be ok */
-	in = list_head(&nt->nt_node);
-	if (in == NULL && (ic->ic_flags & IEEE80211_F_WPA) == 0) {
-		ieee80211_dbg(IEEE80211_MSG_SCAN, "ieee80211_end_scan: "
-		    "no scan candidate\n");
-	notfound:
-		if (ic->ic_opmode == IEEE80211_M_IBSS &&
-		    (ic->ic_flags & IEEE80211_F_IBSSON) &&
-		    ic->ic_des_esslen != 0) {
-			ieee80211_create_ibss(ic, ic->ic_ibss_chan);
-			IEEE80211_UNLOCK(ic);
-			return;
-		}
-
-		/*
-		 * Reset the list of channels to scan and start again.
-		 */
-		ieee80211_reset_scan(ic);
-		ic->ic_flags |= IEEE80211_F_SCAN | IEEE80211_F_ASCAN;
-		IEEE80211_UNLOCK(ic);
-
-		ieee80211_next_scan(ic);
-		return;
-	}
-
-	if (ic->ic_flags & IEEE80211_F_SCANONLY ||
-	    ic->ic_flags & IEEE80211_F_WPA) {	/* scan only */
-		ic->ic_flags &= ~IEEE80211_F_SCANONLY;
-		IEEE80211_UNLOCK(ic);
-		ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
-		return;
-	}
-
-	selbs = NULL;
-	IEEE80211_NODE_LOCK(nt);
-	while (in != NULL) {
-		if (in->in_fails >= IEEE80211_STA_FAILS_MAX) {
-			ieee80211_node_t *tmpin = in;
-
-			/*
-			 * The configuration of the access points may change
-			 * during my scan.  So delete the entry for the AP
-			 * and retry to associate if there is another beacon.
-			 */
-			in = list_next(&nt->nt_node, tmpin);
-			ieee80211_node_reclaim(nt, tmpin);
-			continue;
-		}
-		/*
-		 * It's possible at some special moments, the in_chan will
-		 * be none. Need to skip the null node.
-		 */
-		if (in->in_chan == IEEE80211_CHAN_ANYC) {
-			in = list_next(&nt->nt_node, in);
-			continue;
-		}
-		if (ieee80211_match_bss(ic, in) == 0) {
-			if (selbs == NULL)
-				selbs = in;
-			else
-				selbs = ieee80211_node_compare(ic, selbs, in);
-		}
-		in = list_next(&nt->nt_node, in);
-	}
-	if (selbs != NULL)	/* grab ref while dropping lock */
-		(void) ieee80211_ref_node(selbs);
-	IEEE80211_NODE_UNLOCK(nt);
-	if (selbs == NULL)
-		goto notfound;
-	IEEE80211_UNLOCK(ic);
-	ieee80211_sta_join(ic, selbs);
-}
-
 
 /*
  * Handle 802.11 ad hoc network merge.  The convention, set by the
@@ -1390,18 +1245,6 @@ ieee80211_free_allnodes_locked(ieee80211_node_table_t *nt)
 }
 
 /*
- * Iterate through the node list, calling ieee80211_node_reclaim() for
- * all nodes associated with the interface.
- */
-static void
-ieee80211_free_allnodes(ieee80211_node_table_t *nt)
-{
-	IEEE80211_NODE_LOCK(nt);
-	ieee80211_free_allnodes_locked(nt);
-	IEEE80211_NODE_UNLOCK(nt);
-}
-
-/*
  * Timeout entries in the scan cache. This is the timeout callback
  * function of node table ic_scan which is called when the inactivity
  * timer expires.
@@ -1499,6 +1342,7 @@ restart:
 			IEEE80211_NODE_UNLOCK(nt);
 			if (in->in_associd != 0) {
 				IEEE80211_UNLOCK(ic);
+				ieee80211_notify_timedout(ic, in);
 				IEEE80211_SEND_MGMT(ic, in,
 				    IEEE80211_FC0_SUBTYPE_DEAUTH,
 				    IEEE80211_REASON_AUTH_EXPIRE);

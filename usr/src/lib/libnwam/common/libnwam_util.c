@@ -22,6 +22,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <arpa/inet.h>
@@ -46,7 +47,6 @@
 
 #include "libnwam_impl.h"
 #include <libnwam_priv.h>
-#include <libnwam.h>
 
 /*
  * Utility functions for door access, common validation functions etc.
@@ -202,41 +202,32 @@ nwam_request_state(nwam_object_type_t object_type, const char *name,
 }
 
 nwam_error_t
-nwam_request_wlan(nwam_request_type_t type, const char *name,
-    const char *essid, const char *bssid, uint32_t security_mode,
-    uint_t keyslot, const char *key, boolean_t add_to_known_wlans)
+nwam_request_wlan(nwam_request_type_t type, const char *linkname,
+    const nwam_wlan_t *mywlan, const dladm_wlan_key_t *key_data,
+    const dladm_wlan_eap_t *eap_data)
 {
 	nwamd_door_arg_t req;
 
-	assert(name != NULL);
+	assert(linkname != NULL);
+
+	(void) memset(&req, 0, sizeof (nwamd_door_arg_t));
 
 	req.nwda_type = type;
 
-	(void) strlcpy(req.nwda_data.nwdad_wlan_info.nwdad_name, name,
+	(void) strlcpy(req.nwda_data.nwdad_wlan_info.nwdad_name, linkname,
 	    sizeof (req.nwda_data.nwdad_wlan_info));
-	if (essid != NULL) {
-		(void) strlcpy(req.nwda_data.nwdad_wlan_info.nwdad_essid, essid,
-		    sizeof (req.nwda_data.nwdad_wlan_info.nwdad_essid));
-	} else {
-		req.nwda_data.nwdad_wlan_info.nwdad_essid[0] = '\0';
-	}
-	if (bssid != NULL) {
-		(void) strlcpy(req.nwda_data.nwdad_wlan_info.nwdad_bssid, bssid,
-		    sizeof (req.nwda_data.nwdad_wlan_info.nwdad_bssid));
-	} else {
-		req.nwda_data.nwdad_wlan_info.nwdad_bssid[0] = '\0';
-	}
-	if (key != NULL) {
-		(void) strlcpy(req.nwda_data.nwdad_wlan_info.nwdad_key, key,
-		    sizeof (req.nwda_data.nwdad_wlan_info.nwdad_key));
-		req.nwda_data.nwdad_wlan_info.nwdad_keyslot = keyslot;
-	} else {
-		req.nwda_data.nwdad_wlan_info.nwdad_key[0] = '\0';
-	}
 
-	req.nwda_data.nwdad_wlan_info.nwdad_security_mode = security_mode;
-	req.nwda_data.nwdad_wlan_info.nwdad_add_to_known_wlans =
-	    add_to_known_wlans;
+	if (mywlan != NULL)
+		(void) memcpy(&req.nwda_data.nwdad_wlan_info.nwdad_wlans[0],
+		    mywlan, sizeof (nwam_wlan_t));
+
+	if (key_data != NULL)
+		(void) memcpy(&req.nwda_data.nwdad_wlan_info.nwdad_key,
+		    key_data, sizeof (dladm_wlan_key_t));
+
+	if (eap_data != NULL)
+		(void) memcpy(&req.nwda_data.nwdad_wlan_info.nwdad_eap,
+		    eap_data, sizeof (dladm_wlan_eap_t));
 
 	return (send_msg_to_nwam(&req));
 }
@@ -366,12 +357,14 @@ nwam_event_type_to_string(int event_type)
 		return ("INFO");
 	case NWAM_EVENT_TYPE_WLAN_SCAN_REPORT:
 		return ("WLAN_SCAN_REPORT");
-	case NWAM_EVENT_TYPE_WLAN_NEED_CHOICE:
-		return ("WLAN_NEED_CHOICE");
-	case NWAM_EVENT_TYPE_WLAN_NEED_KEY:
-		return ("WLAN_NEED_KEY");
+	case NWAM_EVENT_TYPE_WLAN_ASSOCIATION_REPORT:
+		return ("WLAN_ASSOCIATION_REPORT");
+	case NWAM_EVENT_TYPE_WLAN_WRONG_KEY:
+		return ("WLAN_WRONG_KEY");
 	case NWAM_EVENT_TYPE_WLAN_CONNECTION_REPORT:
 		return ("WLAN_CONNECTION_REPORT");
+	case NWAM_EVENT_TYPE_WLAN_DISASSOCIATION_REPORT:
+		return ("WLAN_DISASSOCIATION_REPORT");
 	case NWAM_EVENT_TYPE_IF_ACTION:
 		return ("IF_ACTION");
 	case NWAM_EVENT_TYPE_IF_STATE:
@@ -434,14 +427,10 @@ nwam_aux_state_to_string(nwam_aux_state_t aux_state)
 		return ("method/service executing");
 	case NWAM_AUX_STATE_ACTIVE:
 		return ("active");
-	case NWAM_AUX_STATE_LINK_WIFI_SCANNING:
-		return ("scanning for WiFi networks");
-	case NWAM_AUX_STATE_LINK_WIFI_NEED_SELECTION:
-		return ("need WiFi network selection");
-	case NWAM_AUX_STATE_LINK_WIFI_NEED_KEY:
-		return ("need WiFi security key");
-	case NWAM_AUX_STATE_LINK_WIFI_CONNECTING:
-		return ("connecting to WiFi network");
+	case NWAM_AUX_STATE_LINK_WIFI_ASSOCIATED:
+		return ("associated to Wifi AP");
+	case NWAM_AUX_STATE_LINK_WIFI_CONNECTED:
+		return ("connected to WiFi network");
 	case NWAM_AUX_STATE_IF_WAITING_FOR_ADDR:
 		return ("waiting for IP address to be set");
 	case NWAM_AUX_STATE_IF_DHCP_TIMED_OUT:

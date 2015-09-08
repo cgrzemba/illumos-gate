@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _LIBDLLINK_H
@@ -62,28 +63,12 @@ typedef enum {
 	DLADM_PROP_VAL_PERSISTENT
 } dladm_prop_type_t;
 
-/*
- * Maximum size of secobj value. Note that it should not be greater than
- * DLD_SECOBJ_VAL_MAX.
- */
-#define	DLADM_SECOBJ_VAL_MAX	256
-
-/*
- * Maximum size of secobj name. Note that it should not be greater than
- * DLD_SECOBJ_NAME_MAX.
- */
-#define	DLADM_SECOBJ_NAME_MAX	32
-
 #define	DLADM_MAX_PROP_VALCNT	32
 /*
  * Size of prop_val buffer passed to pd_get function must be at
  * least DLADM_PROP_VAL_MAX
  */
 #define	DLADM_PROP_VAL_MAX	128
-
-#define		DLADM_SECOBJ_CLASS_WEP	0
-#define		DLADM_SECOBJ_CLASS_WPA	1
-typedef int	dladm_secobj_class_t;
 
 typedef int (dladm_walkcb_t)(const char *, void *);
 
@@ -136,28 +121,10 @@ extern dladm_status_t	dladm_walk_linkprop(dladm_handle_t, datalink_id_t,
 extern boolean_t	dladm_attr_is_linkprop(const char *name);
 extern dladm_status_t	dladm_linkprop_is_set(dladm_handle_t, datalink_id_t,
 			    dladm_prop_type_t, const char *, boolean_t *);
-
-extern dladm_status_t	dladm_set_secobj(dladm_handle_t, const char *,
-			    dladm_secobj_class_t, uint8_t *, uint_t, uint_t);
-extern dladm_status_t	dladm_get_secobj(dladm_handle_t, const char *,
-			    dladm_secobj_class_t *, uint8_t *, uint_t *,
-			    uint_t);
-extern dladm_status_t	dladm_unset_secobj(dladm_handle_t, const char *,
-			    uint_t);
-extern dladm_status_t	dladm_walk_secobj(dladm_handle_t, void *,
-			    boolean_t (*)(dladm_handle_t, void *, const char *),
-			    uint_t);
-
-extern const char	*dladm_linkstate2str(link_state_t, char *);
-extern const char	*dladm_linkduplex2str(link_duplex_t, char *);
-extern const char	*dladm_secobjclass2str(dladm_secobj_class_t, char *);
-extern dladm_status_t	dladm_str2secobjclass(const char *,
-			    dladm_secobj_class_t *);
-
 extern dladm_status_t	dladm_init_linkprop(dladm_handle_t, datalink_id_t,
 			    boolean_t);
-extern dladm_status_t	dladm_init_secobj(dladm_handle_t);
-extern boolean_t	dladm_valid_secobj_name(const char *);
+extern const char	*dladm_linkstate2str(link_state_t, char *);
+extern const char	*dladm_linkduplex2str(link_duplex_t, char *);
 
 extern dladm_status_t	dladm_create_datalink_id(dladm_handle_t, const char *,
 			    datalink_class_t, uint_t, uint32_t,

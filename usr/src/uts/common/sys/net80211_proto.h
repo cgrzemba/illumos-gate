@@ -789,7 +789,6 @@ enum {
 
 #define	WPA_OUI			0xf25000
 #define	WPA_OUI_TYPE		0x01
-#define	WPA_VERSION		1		/* current supported version */
 
 #define	IEEE80211_CHALLENGE_LEN			128
 

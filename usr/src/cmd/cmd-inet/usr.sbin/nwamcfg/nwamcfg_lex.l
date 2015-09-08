@@ -207,17 +207,22 @@ char *safe_strdup(char *s);
 <TSTATE>ike-config-file			{ return LOC_IKE_CONFIG; }
 <TSTATE>ipsecpolicy-config-file		{ return LOC_IPSECPOL_CONFIG; }
 
-<TSTATE>bssids		{ return WLAN_BSSIDS; }
-<TSTATE>priority	{ return WLAN_PRIORITY; }
-<TSTATE>keyname		{ return WLAN_KEYNAME; }
-<TSTATE>keyslot		{ return WLAN_KEYSLOT; }
-<TSTATE>security-mode	{ return WLAN_SECURITY_MODE; }
+<TSTATE>ssid			{ return WLAN_SSID; }
+<TSTATE>bssid			{ return WLAN_BSSID; }
+<TSTATE>keyname			{ return WLAN_KEYNAME; }
+<TSTATE>priority		{ return WLAN_PRIORITY; }
+<TSTATE>disabled		{ return WLAN_DISABLED; }
+<TSTATE>identity		{ return WLAN_EAP_USER; }
+<TSTATE>anonymous-identity	{ return WLAN_EAP_ANON; }
+<TSTATE>ca_cert			{ return WLAN_CA_CERT; }
+<TSTATE>private_key		{ return WLAN_PRIV; }
+<TSTATE>client_cert		{ return WLAN_CLI_CERT; }
 
 <TSTATE>=		{ return EQUAL; }
 
 <TSTATE>\-[adftV] {	/* matches options */
 			yylval.strval = safe_strdup(yytext);
-			return OPTION; 
+			return OPTION;
 		}
 
 <TSTATE>[^ \t\n\";=\[\]\(\)]+	{	/* matches non-quoted values */

@@ -25,9 +25,7 @@
  */
 
 #include <sys/types.h>
-#include <bsm/adt.h>
 #include <bsm/adt_event.h>
-
 #include <libnwam_priv.h>
 
 /*

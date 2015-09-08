@@ -21,13 +21,15 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <arpa/inet.h>
 #include <assert.h>
 #include <libdlaggr.h>
-#include <libdllink.h>
 #include <libdlstat.h>
+#include <libdllink.h>
+#include <libdlwlan.h>
 #include <libnwam.h>
 #include <libscf.h>
 #include <netinet/in.h>
@@ -137,12 +139,10 @@ nwamd_ncu_state_machine(const char *object_name)
 {
 	nwamd_object_t object;
 	nwamd_ncu_t *ncu;
-	link_state_t link_state;
-	nwamd_event_t event;
-	nwam_wlan_t key_wlan, connected_wlan;
 	nwamd_link_t *link;
-	char linkname[NWAM_MAX_NAME_LEN];
+
 	boolean_t up;
+	boolean_t is_wireless;
 
 	if ((object = nwamd_object_find(NWAM_OBJECT_TYPE_NCU, object_name))
 	    == NULL) {
@@ -154,58 +154,34 @@ nwamd_ncu_state_machine(const char *object_name)
 	ncu = object->nwamd_object_data;
 	link = &ncu->ncu_link;
 
+	is_wireless = (link->nwamd_link_media == DL_WIFI);
+
 	switch (object->nwamd_object_aux_state) {
 	case NWAM_AUX_STATE_INITIALIZED:
 		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK) {
+			link_state_t link_state;
 			/*
 			 * For wired/wireless links, need to get link
-			 * up/down events and even if these are not supported,
-			 * dlpi_open()ing the link prevents the driver from
-			 * being unloaded.
+			 * up/down events.
 			 */
 			nwamd_dlpi_add_link(object);
 
-			if (link->nwamd_link_media == DL_WIFI) {
-				/*
-				 * First, if we're unexpectedly connected,
-				 * disconnect.
-				 */
-				if (!link->nwamd_link_wifi_connected &&
-				    nwamd_wlan_connected(object)) {
-					nlog(LOG_DEBUG,
-					    "nwamd_ncu_state_machine: "
-					    "WiFi unexpectedly connected, "
-					    "disconnecting...");
-					(void) dladm_wlan_disconnect(dld_handle,
-					    link->nwamd_link_id);
-					nwamd_set_selected_connected(ncu,
-					    B_FALSE, B_FALSE);
-				}
-				/* move to scanning aux state */
+			/*
+			 * If initial link state is unknown, we
+			 * will need to assume the link is up, since
+			 * we will not get DL_NOTE_LINK_UP/DOWN events.
+			 */
+			link_state = nwamd_get_link_state(ncu->ncu_name);
+			if (link_state == LINK_STATE_UP ||
+			    (link_state == LINK_STATE_UNKNOWN &&
+			    !is_wireless)) {
 				nwamd_object_set_state(NWAM_OBJECT_TYPE_NCU,
-				    object_name, object->nwamd_object_state,
-				    NWAM_AUX_STATE_LINK_WIFI_SCANNING);
+				    object_name, NWAM_STATE_ONLINE,
+				    NWAM_AUX_STATE_UP);
 			} else {
-				/*
-				 * If initial wired link state is unknown, we
-				 * will need to assume the link is up, since
-				 * we won´t get DL_NOTE_LINK_UP/DOWN events.
-				 */
-				link_state = nwamd_get_link_state
-				    (ncu->ncu_name);
-				if (link_state == LINK_STATE_UP ||
-				    link_state == LINK_STATE_UNKNOWN) {
-					nwamd_object_set_state
-					    (NWAM_OBJECT_TYPE_NCU,
-					    object_name, NWAM_STATE_ONLINE,
-					    NWAM_AUX_STATE_UP);
-				} else {
-					nwamd_object_set_state
-					    (NWAM_OBJECT_TYPE_NCU,
-					    object_name,
-					    NWAM_STATE_ONLINE_TO_OFFLINE,
-					    NWAM_AUX_STATE_DOWN);
-				}
+				nwamd_object_set_state(NWAM_OBJECT_TYPE_NCU,
+				    object_name, NWAM_STATE_ONLINE_TO_OFFLINE,
+				    NWAM_AUX_STATE_DOWN);
 			}
 		} else {
 			/*
@@ -261,117 +237,84 @@ nwamd_ncu_state_machine(const char *object_name)
 		 */
 		break;
 
-	case NWAM_AUX_STATE_LINK_WIFI_SCANNING:
-		/* launch scan thread */
-		(void) strlcpy(linkname, ncu->ncu_name, sizeof (linkname));
-		(void) nwamd_wlan_scan(linkname);
-		/* Create periodic scan event */
-		nwamd_ncu_create_periodic_scan_event(object);
+	case NWAM_AUX_STATE_LINK_WIFI_ASSOCIATED:
+		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK && is_wireless &&
+		    ncu->ncu_enabled) {
+			nwamd_event_t assoc_event;
+			assoc_event = nwamd_event_init_wlan(ncu->ncu_name,
+			    NWAM_EVENT_TYPE_WLAN_ASSOCIATION_REPORT,
+			    &link->nwamd_link_wifi_wlan, 1);
+			if (assoc_event == NULL) {
+				nlog(LOG_ERR, "nwamd_ncu_state_machine(%s): "
+				    "failed to init wlan association report",
+				    ncu->ncu_name);
+			} else
+				nwamd_event_enqueue(assoc_event);
+		}
 		break;
 
-	case NWAM_AUX_STATE_LINK_WIFI_NEED_SELECTION:
-		/* send "need choice" event */
-		event = nwamd_event_init_wlan
-		    (ncu->ncu_name, NWAM_EVENT_TYPE_WLAN_NEED_CHOICE, B_FALSE,
-		    link->nwamd_link_wifi_scan.nwamd_wifi_scan_curr,
-		    link->nwamd_link_wifi_scan.nwamd_wifi_scan_curr_num);
-		if (event == NULL)
-			break;
-		nwamd_event_enqueue(event);
-		nwamd_set_selected_connected(ncu, B_FALSE, B_FALSE);
-		break;
-
-	case NWAM_AUX_STATE_LINK_WIFI_NEED_KEY:
-		/*
-		 * Send "need key" event.  Set selected to true, connected
-		 * and have_key to false.  Do not fill in WLAN details as
-		 * multiple WLANs may match the ESSID name, and each may
-		 * have a different speed and channel.
-		 */
-		bzero(&key_wlan, sizeof (key_wlan));
-		(void) strlcpy(key_wlan.nww_essid, link->nwamd_link_wifi_essid,
-		    sizeof (key_wlan.nww_essid));
-		(void) strlcpy(key_wlan.nww_bssid, link->nwamd_link_wifi_bssid,
-		    sizeof (key_wlan.nww_bssid));
-		key_wlan.nww_security_mode =
-		    link->nwamd_link_wifi_security_mode;
-		key_wlan.nww_selected = B_TRUE;
-		key_wlan.nww_connected = B_FALSE;
-		key_wlan.nww_have_key = B_FALSE;
-		event = nwamd_event_init_wlan
-		    (ncu->ncu_name, NWAM_EVENT_TYPE_WLAN_NEED_KEY, B_FALSE,
-		    &key_wlan, 1);
-		if (event == NULL)
-			break;
-		nwamd_event_enqueue(event);
-		break;
-
-	case NWAM_AUX_STATE_LINK_WIFI_CONNECTING:
-		(void) strlcpy(linkname, ncu->ncu_name, sizeof (linkname));
-		nwamd_wlan_connect(linkname);
+	case NWAM_AUX_STATE_LINK_WIFI_CONNECTED:
+		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK && is_wireless &&
+		    ncu->ncu_enabled) {
+			if (nwamd_wlan_connected(object) &&
+			    link->nwamd_link_wifi_wlan.nww_wlanid == 0) {
+				nwam_error_t err;
+				const char *invalid_prop;
+				nlog(LOG_DEBUG, "nwamd_ncu_state_machine: "
+				    "adding '%s' to known WLANs",
+				    link->nwamd_link_wifi_wlan.nww_essid);
+				err = nwam_known_wlan_add_to_known_wlans
+				    (dld_handle, &link->nwamd_link_wifi_wlan,
+				    link->nwamd_link_wifi_key,
+				    link->nwamd_link_wifi_eap, &invalid_prop);
+				if (err != NWAM_SUCCESS) {
+					nlog(LOG_ERR, "nwamd_ncu_state_machine:"
+					    " failed adding to known WLANs(%s)."
+					    " Invalid Prop: %s",
+					    nwam_strerror(err),
+					    invalid_prop ? invalid_prop : "");
+				} else {
+					/* update scan result */
+					link->nwamd_link_wifi_scan.
+					    nwamd_wifi_sres[link->
+					    nwamd_link_wifi_wlan.nww_scanid].
+					    nww_wlanid = link->
+					    nwamd_link_wifi_wlan.nww_wlanid;
+				}
+			}
+			nlog(LOG_DEBUG, "nwamd_ncu_state_machine: connect "
+			    "succeeded, setting link state online");
+			nwamd_object_set_state(NWAM_OBJECT_TYPE_NCU,
+			    object_name, NWAM_STATE_ONLINE, NWAM_AUX_STATE_UP);
+		}
 		break;
 
 	case NWAM_AUX_STATE_UP:
 	case NWAM_AUX_STATE_DOWN:
 		up = (object->nwamd_object_aux_state == NWAM_AUX_STATE_UP);
-		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK) {
-			if (link->nwamd_link_media == DL_WIFI) {
-				/*
-				 * Connected/disconnected - send WLAN
-				 * connection report.
-				 */
-				link->nwamd_link_wifi_connected = up;
-				nwamd_set_selected_connected(ncu, B_TRUE, up);
 
-				(void) strlcpy(connected_wlan.nww_essid,
-				    link->nwamd_link_wifi_essid,
-				    sizeof (connected_wlan.nww_essid));
-				(void) strlcpy(connected_wlan.nww_bssid,
-				    link->nwamd_link_wifi_bssid,
-				    sizeof (connected_wlan.nww_bssid));
-				connected_wlan.nww_security_mode =
-				    link->nwamd_link_wifi_security_mode;
-				event = nwamd_event_init_wlan
-				    (ncu->ncu_name,
-				    NWAM_EVENT_TYPE_WLAN_CONNECTION_REPORT, up,
-				    &connected_wlan, 1);
-				if (event == NULL)
-					break;
-				nwamd_event_enqueue(event);
+		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK && !up && is_wireless &&
+		    (object->nwamd_object_state ==
+		    NWAM_STATE_OFFLINE_TO_ONLINE ||
+		    object->nwamd_object_state ==
+		    NWAM_STATE_ONLINE_TO_OFFLINE)) {
+			dladm_status_t status;
+			struct wpa_ctrl *ctrl_conn = NULL;
+			char *reconf[] = {"RECONFIGURE"};
 
-				/*
-				 * If disconnected, restart the state machine
-				 * for the WiFi link (WiFi is always trying
-				 * to connect).
-				 *
-				 * If connected, start signal strength
-				 * monitoring thread.
-				 */
-				if (!up && ncu->ncu_enabled) {
-					nlog(LOG_DEBUG,
-					    "nwamd_ncu_state_machine: "
-					    "wifi disconnect - start over "
-					    "after %dsec interval",
-					    WIRELESS_RETRY_INTERVAL);
-					link->nwamd_link_wifi_connected =
-					    B_FALSE;
-					/* propogate down event to IP NCU */
-					nwamd_propogate_link_up_down_to_ip
-					    (ncu->ncu_name, B_FALSE);
-					nwamd_object_set_state_timed
-					    (NWAM_OBJECT_TYPE_NCU, object_name,
-					    NWAM_STATE_OFFLINE_TO_ONLINE,
-					    NWAM_AUX_STATE_INITIALIZED,
-					    WIRELESS_RETRY_INTERVAL);
-				} else {
-					nlog(LOG_DEBUG,
-					    "nwamd_ncu_state_machine: "
-					    "wifi connected, start monitoring");
-					(void) strlcpy(linkname, ncu->ncu_name,
-					    sizeof (linkname));
-					nwamd_wlan_monitor_signal(linkname);
-				}
+			status = dladm_wlan_validate(dld_handle,
+			    link->nwamd_link_id, &ctrl_conn, NULL);
+			if (status != DLADM_STATUS_OK) {
+				nlog(LOG_ERR, "nwamd_ncu_state_machine(%s): "
+				    "err connecting to wpa_s ctrlif (%d)",
+				    ncu->ncu_name, status);
 			}
+
+			if (wpa_request(ctrl_conn, 1, reconf)) {
+				nlog(LOG_ERR, "nwamd_ncu_state_machine(%s): err"
+				    " reconfiguring wpa_s", ncu->ncu_name);
+			}
+			wpa_ctrl_close(ctrl_conn);
 		}
 
 		/* If not in ONLINE/OFFLINE state yet, change state */
@@ -420,19 +363,18 @@ nwamd_ncu_state_machine(const char *object_name)
 
 	case NWAM_AUX_STATE_CONDITIONS_NOT_MET:
 		/*
-		 * Link/interface is moving offline.  Nothing to do except
-		 * for WiFi, where we disconnect.  Don't unplumb IP on
-		 * a link since it may be a transient change.
+		 * Interface is moving offline.
+		 * Don't unplumb IP on a link since it may be a transient change
 		 */
-		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK) {
-			if (link->nwamd_link_media == DL_WIFI) {
-				(void) dladm_wlan_disconnect(dld_handle,
-				    link->nwamd_link_id);
-				link->nwamd_link_wifi_connected = B_FALSE;
-				nwamd_set_selected_connected(ncu, B_FALSE,
-				    B_FALSE);
-			}
-		} else {
+		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK && is_wireless) {
+			dladm_status_t status;
+			status = dladm_wlan_disconnect(dld_handle,
+			    link->nwamd_link_id);
+			if (status != DLADM_STATUS_OK)
+				nlog(LOG_ERR, "nwamd_ncu_state_machine"
+				    "(%s): err removing wpa_s inst(%d)",
+				    ncu->ncu_name, status);
+		} else if (ncu->ncu_type == NWAM_NCU_TYPE_INTERFACE) {
 			/*
 			 * Unplumb here. In the future we may elaborate on
 			 * the approach used and not unplumb for WiFi
@@ -460,12 +402,14 @@ nwamd_ncu_state_machine(const char *object_name)
 		 * For WiFi links disconnect, and for IP interfaces we unplumb.
 		 */
 		if (ncu->ncu_type == NWAM_NCU_TYPE_LINK) {
-			if (link->nwamd_link_media == DL_WIFI) {
-				(void) dladm_wlan_disconnect(dld_handle,
+			if (is_wireless) {
+				dladm_status_t status;
+				status = dladm_wlan_disconnect(dld_handle,
 				    link->nwamd_link_id);
-				link->nwamd_link_wifi_connected = B_FALSE;
-				nwamd_set_selected_connected(ncu, B_FALSE,
-				    B_FALSE);
+				if (status != DLADM_STATUS_OK)
+					nlog(LOG_ERR, "nwamd_ncu_state_machine"
+					    "(%s): err removing wpa_s inst(%d)",
+					    ncu->ncu_name, status);
 			}
 			nwamd_dlpi_delete_link(object);
 		} else {
@@ -1082,7 +1026,6 @@ nwamd_ncu_init(nwam_ncu_type_t ncu_type, const char *name)
 		    &rv->ncu_link.nwamd_link_media);
 		(void) pthread_mutex_init(
 		    &rv->ncu_link.nwamd_link_wifi_mutex, NULL);
-		rv->ncu_link.nwamd_link_wifi_priority = MAXINT;
 	} else {
 		(void) bzero(&rv->ncu_if, sizeof (nwamd_if_t));
 	}
@@ -1101,6 +1044,8 @@ nwamd_ncu_free(nwamd_ncu_t *ncu)
 			int i;
 
 			free(l->nwamd_link_wifi_key);
+			free(l->nwamd_link_wifi_eap);
+			free(l->nwamd_link_wifi_scan.nwamd_wifi_sres);
 			free(l->nwamd_link_mac_addr);
 			for (i = 0; i < l->nwamd_link_num_autopush; i++)
 				free(l->nwamd_link_autopush[i]);
@@ -1247,7 +1192,6 @@ add_ip_ncu_to_ncp(nwam_ncp_handle_t ncph, const char *name)
 	/* IP NCU has the default values, so nothing else to do */
 	err = nwam_ncu_commit(ncuh, 0);
 
-finish:
 	nwam_ncu_free(ncuh);
 	if (err != NWAM_SUCCESS) {
 		nlog(LOG_ERR,
@@ -1754,48 +1698,39 @@ nwamd_ncu_handle_init_event(nwamd_event_t event)
 				    NWAM_AUX_STATE_MANUAL_DISABLE);
 			}
 			goto done;
-		} else {
-			if (object->nwamd_object_state == NWAM_STATE_DISABLED) {
-				int64_t c;
+		} else if (object->nwamd_object_state == NWAM_STATE_DISABLED) {
+			int64_t c;
 
-				/*
-				 * Try to activate the NCU if manual or
-				 * prioritized (when priority <= current).
-				 */
-				(void) pthread_mutex_lock(&active_ncp_mutex);
-				c = current_ncu_priority_group;
-				(void) pthread_mutex_unlock(&active_ncp_mutex);
-				if (link->nwamd_link_activation_mode ==
-				    NWAM_ACTIVATION_MODE_MANUAL ||
-				    (link->nwamd_link_activation_mode ==
-				    NWAM_ACTIVATION_MODE_PRIORITIZED &&
-				    link->nwamd_link_priority_mode <= c)) {
-					nwamd_object_set_state
-					    (NWAM_OBJECT_TYPE_NCU,
-					    object->nwamd_object_name,
-					    NWAM_STATE_OFFLINE_TO_ONLINE,
-					    NWAM_AUX_STATE_INITIALIZED);
-				} else {
-					nwamd_object_set_state
-					    (NWAM_OBJECT_TYPE_NCU,
-					    object->nwamd_object_name,
-					    NWAM_STATE_OFFLINE_TO_ONLINE,
-					    NWAM_AUX_STATE_INITIALIZED);
-				}
-				goto done;
+			/*
+			 * Try to activate the NCU if manual or
+			 * prioritized (when priority <= current).
+			 */
+			(void) pthread_mutex_lock(&active_ncp_mutex);
+			c = current_ncu_priority_group;
+			(void) pthread_mutex_unlock(&active_ncp_mutex);
+			if (link->nwamd_link_activation_mode ==
+			    NWAM_ACTIVATION_MODE_MANUAL ||
+			    (link->nwamd_link_activation_mode ==
+			    NWAM_ACTIVATION_MODE_PRIORITIZED &&
+			    link->nwamd_link_priority_mode <= c)) {
+				nwamd_object_set_state
+				    (NWAM_OBJECT_TYPE_NCU,
+				    object->nwamd_object_name,
+				    NWAM_STATE_OFFLINE_TO_ONLINE,
+				    NWAM_AUX_STATE_INITIALIZED);
+			} else {
+				/* wrong logic ?? */
+				nwamd_object_set_state
+				    (NWAM_OBJECT_TYPE_NCU,
+				    object->nwamd_object_name,
+				    NWAM_STATE_OFFLINE,
+				    NWAM_AUX_STATE_INITIALIZED);
 			}
+			goto done;
 		}
 
 		switch (type) {
 		case NWAM_NCU_TYPE_LINK:
-			if (ncu->ncu_link.nwamd_link_media == DL_WIFI) {
-				/*
-				 * Do rescan.  If the current state and the
-				 * active priority-group do not allow wireless
-				 * network selection, then it won't happen.
-				 */
-				(void) nwamd_wlan_scan(ncu->ncu_name);
-			}
 			break;
 		case NWAM_NCU_TYPE_INTERFACE:
 			/*
@@ -1813,6 +1748,8 @@ nwamd_ncu_handle_init_event(nwamd_event_t event)
 				object->nwamd_object_aux_state =
 				    NWAM_AUX_STATE_CONDITIONS_NOT_MET;
 			}
+			break;
+		default:
 			break;
 		}
 	}
@@ -2035,6 +1972,7 @@ nwamd_ncu_handle_state_event(nwamd_event_t event)
 	 * State machine for NCUs
 	 */
 	switch (new_state) {
+	case NWAM_STATE_ONLINE:
 	case NWAM_STATE_OFFLINE_TO_ONLINE:
 		if (enabled) {
 			nwamd_ncu_state_machine(event->event_object);
@@ -2047,15 +1985,6 @@ nwamd_ncu_handle_state_event(nwamd_event_t event)
 		break;
 
 	case NWAM_STATE_ONLINE_TO_OFFLINE:
-		nwamd_ncu_state_machine(event->event_object);
-		break;
-
-	case NWAM_STATE_ONLINE:
-		/*
-		 * We usually don't need to do anything when we're in the
-		 * ONLINE state.  However, for  WiFi we can be in INIT or
-		 * SCAN aux states while being ONLINE.
-		 */
 		nwamd_ncu_state_machine(event->event_object);
 		break;
 

@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -72,15 +73,14 @@ struct cmd {
 #define	CMD_DISABLE	2
 #define	CMD_LIST	3
 #define	CMD_SHOW_EVENTS	4
-#define	CMD_SCAN_WIFI	5
-#define	CMD_SELECT_WIFI	6
+#define	CMD_SELECT_WIFI	5
 
 #define	CMD_MIN		CMD_HELP
 #define	CMD_MAX		CMD_SELECT_WIFI
 
 /* functions to call */
 static cmd_func_t help_func, enable_func, disable_func, list_func;
-static cmd_func_t show_events_func, scan_wifi_func, select_wifi_func;
+static cmd_func_t show_events_func, select_wifi_func;
 static ofmt_cb_t print_list_cb;
 
 /* table of commands and usage */
@@ -100,12 +100,9 @@ static struct cmd cmdtab[] = {
 	{ CMD_SHOW_EVENTS,	"show-events",	show_events_func,
 	    "show-events",
 	    "Display all events.",			B_TRUE		},
-	{ CMD_SCAN_WIFI,	"scan-wifi",	scan_wifi_func,
-	    "scan-wifi <link-name>",
-	    "Request a WiFi scan for the selected link.", B_TRUE	},
 	{ CMD_SELECT_WIFI,	"select-wifi",	select_wifi_func,
 	    "select-wifi <link-name>",
-	    "Make a WLAN selection from the last WiFi scan.", B_TRUE	}
+	    "Make a WLAN selection from WiFi scan results", B_TRUE	}
 };
 
 /* Structure for "nwamadm list" output */
@@ -1017,8 +1014,6 @@ eventhandler(nwam_event_t event)
 	const char *action = NULL;
 	char *state = NULL;
 	boolean_t display = B_TRUE;
-	int i;
-	nwam_wlan_t *wlans;
 
 	(void) strlcpy(description, "-", sizeof (description));
 
@@ -1057,28 +1052,19 @@ eventhandler(nwam_event_t event)
 	case NWAM_EVENT_TYPE_WLAN_SCAN_REPORT:
 		(void) printf("%-*s \n", EVENT_WIDTH,
 		    nwam_event_type_to_string(event->nwe_type));
-		wlans = event->nwe_data.nwe_wlan_info.nwe_wlans;
-		for (i = 0;
-		    i < event->nwe_data.nwe_wlan_info.nwe_num_wlans;
-		    i++) {
-			(void) snprintf(description, DESCRIPTION_WIDTH,
-			    "%d: %c%c ESSID %s BSSID %s", i + 1,
-			    wlans[i].nww_selected ? 'S' : '-',
-			    wlans[i].nww_connected ? 'C' : '-',
-			    wlans[i].nww_essid, wlans[i].nww_bssid);
-			(void) printf("%-*s %-*s\n", EVENT_WIDTH, "-",
-			    DESCRIPTION_WIDTH, description);
-		}
+		(void) printf("Found %u  Scan Results for link %s",
+		    event->nwe_data.nwe_wlan_info.nwe_scanres_num,
+		    event->nwe_data.nwe_wlan_info.nwe_name);
 		display = B_FALSE;
 		break;
 
-	case NWAM_EVENT_TYPE_WLAN_NEED_CHOICE:
+	case NWAM_EVENT_TYPE_WLAN_ASSOCIATION_REPORT:
 		(void) printf("%-*s \n", EVENT_WIDTH,
 		    nwam_event_type_to_string(event->nwe_type));
 		display = B_FALSE;
 		break;
 
-	case NWAM_EVENT_TYPE_WLAN_NEED_KEY:
+	case NWAM_EVENT_TYPE_WLAN_WRONG_KEY:
 		(void) printf("%-*s \n", EVENT_WIDTH,
 		    nwam_event_type_to_string(event->nwe_type));
 		display = B_FALSE;
@@ -1087,10 +1073,17 @@ eventhandler(nwam_event_t event)
 	case NWAM_EVENT_TYPE_WLAN_CONNECTION_REPORT:
 		(void) snprintf(description, DESCRIPTION_WIDTH,
 		    gettext("connect to WLAN ESSID %s, BSSID %s %s"),
-		    event->nwe_data.nwe_wlan_info.nwe_wlans[0].nww_essid,
-		    event->nwe_data.nwe_wlan_info.nwe_wlans[0].nww_bssid,
-		    event->nwe_data.nwe_wlan_info.nwe_connected ?
-		    "succeeded" : "failed");
+		    event->nwe_data.nwe_wlan_info.nwe_wlan.nww_essid,
+		    event->nwe_data.nwe_wlan_info.nwe_wlan.nww_bssid,
+		    "succeeded");
+		break;
+
+	case NWAM_EVENT_TYPE_WLAN_DISASSOCIATION_REPORT:
+		(void) snprintf(description, DESCRIPTION_WIDTH,
+		    gettext("disconnected from WLAN ESSID %s, BSSID %s %s"),
+		    event->nwe_data.nwe_wlan_info.nwe_wlan.nww_essid,
+		    event->nwe_data.nwe_wlan_info.nwe_wlan.nww_bssid,
+		    "failed");
 		break;
 
 	case NWAM_EVENT_TYPE_INFO:
@@ -1202,179 +1195,338 @@ show_events_func(int argc, char *argv[])
 	die_nwamerr(err, "event handling stopped");
 }
 
-/* May need to convert case-insensitive link name match to case-sensitive one */
-static nwam_error_t
-name_to_linkname(char *name, char **linknamep)
+static void
+prompt_sec_policy(dladm_wlan_secmode_t security_mode, dladm_wlan_key_t *key,
+    dladm_wlan_eap_t *eap_data)
 {
-	nwam_error_t err;
-	nwam_ncp_handle_t ncph = NULL;
-	nwam_ncu_handle_t ncuh = NULL;
+	uint_t k;
 
-	if ((ncph = determine_active_ncp()) == NULL)
-		return (NWAM_ENTITY_NOT_FOUND);
+	if (security_mode == DLADM_WLAN_SECMODE_EAP) {
+		char eap_input[PATH_MAX];
+		char mode[3];
+		char *user_prompt[] = {
+			"EAP Identity [mandatory]",
+			"EAP Anonymous Identity [optional]"
+		};
+		char *filename_prompt[] = {
+			"CA Certificate [optional]",
+			"EAP-TLS Private Key Filename [mandatory] \n",
+			"EAP-TLS Client Certificate [optional if pk12 file was "
+			"used for Private Key]"
+		};
 
-	err = nwam_ncu_read(ncph, name, NWAM_NCU_TYPE_LINK, 0, &ncuh);
-	if (err == NWAM_SUCCESS)
-		err = nwam_ncu_get_name(ncuh, linknamep);
+		/* ask eap mode */
+		do {
+			char eap_str[8];
+			for (k = DLADM_SECOBJ_CLASS_TLS;
+			    dladm_valid_secobjclass(k); k++)
+				(void) printf("\n %d: %s", k - 2,
+				    dladm_secobjclass2str(k, eap_str));
+			(void) printf(gettext("\nEnter EAP mode: "));
+			(void) fgets(mode, 2, stdin);
+			(void) fflush(stdin);
+			key->wk_class = atoi(mode) + 2;
+		} while (key->wk_class != DLADM_SECOBJ_CLASS_TLS &&
+		    key->wk_class != DLADM_SECOBJ_CLASS_TTLS &&
+		    key->wk_class != DLADM_SECOBJ_CLASS_PEAP);
 
-	nwam_ncp_free(ncph);
-	nwam_ncu_free(ncuh);
-	return (err);
+		/* user */
+		k = 0;
+		do {
+			(void) memset(eap_input, 0, sizeof (eap_input));
+			(void) printf(gettext("\nEnter %s : "), user_prompt[k]);
+			(void) fgets(eap_input, sizeof (eap_input), stdin);
+			(void) fflush(stdin);
+		} while (eap_input[0] == '\n' ||
+		    dladm_str2identity(eap_input, eap_data->eap_user));
+		eap_data->eap_valid |= DLADM_EAP_ATTR_USER;
+
+		/* anon */
+		k++;
+		do {
+			(void) memset(eap_input, 0, sizeof (eap_input));
+			(void) printf(gettext("\nEnter %s : "), user_prompt[k]);
+			(void) fgets(eap_input, sizeof (eap_input), stdin);
+			(void) fflush(stdin);
+		} while (dladm_str2identity(eap_input, eap_data->eap_anon) &&
+		    eap_input[0] != '\n');
+		if (eap_input[0] != '\n')
+			eap_data->eap_valid |= DLADM_EAP_ATTR_ANON;
+
+		/* ca cert */
+		k = 0;
+		do {
+			(void) memset(eap_input, 0, sizeof (eap_input));
+			(void) printf(gettext("\nEnter %s : "),
+			    filename_prompt[k]);
+			(void) fgets(eap_input, sizeof (eap_input), stdin);
+			(void) fflush(stdin);
+		} while (dladm_str2crtname(eap_input, eap_data->eap_ca_cert) &&
+		    eap_input[0] != '\n');
+		if (eap_input[0] != '\n')
+			eap_data->eap_valid |= DLADM_EAP_ATTR_CACERT;
+
+		if (key->wk_class == DLADM_SECOBJ_CLASS_TLS) {
+			/* priv key */
+			k++;
+			do {
+				(void) memset(eap_input, 0, sizeof (eap_input));
+				(void) printf(gettext("\nEnter %s: "),
+				    filename_prompt[k]);
+				(void) fgets(eap_input, sizeof (eap_input),
+				    stdin);
+				(void) fflush(stdin);
+			} while (dladm_str2crtname(eap_input,
+			    eap_data->eap_priv));
+			eap_data->eap_valid |= DLADM_EAP_ATTR_PRIV;
+
+			(void) fflush(stdin);
+			/* cli cert */
+			k++;
+			do {
+				(void) memset(eap_input, 0, sizeof (eap_input));
+				(void) printf(gettext("\nEnter %s: "),
+				    filename_prompt[k]);
+				(void) fgets(eap_input, sizeof (eap_input),
+				    stdin);
+				(void) fflush(stdin);
+			} while (dladm_str2crtname(eap_input,
+			    eap_data->eap_cli_cert) && eap_input[0] != '\n');
+			if (eap_input[0] != '\n')
+				eap_data->eap_valid |= DLADM_EAP_ATTR_CLICERT;
+		}
+	} else
+		key->wk_class = (dladm_secobj_class_t)security_mode;
+
+	while (dladm_secobj_prompt(key, NULL) != DLADM_STATUS_OK) {}
+
+	/* TODO: PKCS11 keystore: if true, import the certificates here */
 }
 
-static void
-scan_wifi_func(int argc, char *argv[])
+static ofmt_field_t scanres_common_fields[] = {
+{ "    WlanID",	11, 0,	NULL},
+{ "BSSID",	19, 1,	NULL},
+{ "CHAN",	5,  2,	NULL},
+{ "STRENGTH",	9,  3,	NULL},
+{ "SPEED",	6,  4,	NULL},
+{ "ESSID",	32, 5,	NULL},
+{ "SECMODE",	1,  6,	NULL},
+{ NULL,		0,  0,	NULL}};
+
+static char *scanres_select_fields =
+	"    WlanID,bssid,chan,strength,speed,essid,secmode";
+
+static boolean_t
+do_print_nww_attr_cb(ofmt_arg_t *ofarg, char *buf, uint_t bufsize)
 {
-	nwam_error_t err;
-	char *linkname = NULL;
+	nwam_wlan_t	*attrp = ofarg->ofmt_cbarg;
 
-	if (argc != 1)
-		die_usage(CMD_SCAN_WIFI);
+	switch (ofarg->ofmt_id) {
+	case 0:
+		if (attrp->nww_wlanid)
+			(void) snprintf(buf, bufsize, "%u)  {%u}",
+			    attrp->nww_scanid + 1, attrp->nww_wlanid);
+		else
+			(void) snprintf(buf, bufsize, "%u)  NONE",
+			    attrp->nww_scanid + 1);
+		break;
+	case 5:
+		(void) memcpy(buf, attrp->nww_essid, DLADM_WLAN_MAX_ESSID_LEN);
+		break;
+	case 1:
+		(void) dladm_wlan_bssid2str(attrp->nww_bssid, buf);
+		break;
+	case 3:
+		(void) dladm_wlan_strength2str(attrp->nww_strength, buf);
+		break;
+	case 6:
+		(void) strlcpy(buf, attrp->nww_ietxt,
+		    sizeof (attrp->nww_ietxt));
+		break;
+	case 4:
+		(void) dladm_wlan_rate2str(attrp->nww_rate, buf);
+		break;
+	case 2:
+		(void) dladm_wlan_freq2channel(attrp->nww_freq, buf);
+		break;
+	default:
+		break;
+	}
 
-	if ((err = name_to_linkname(argv[0], &linkname)) != NWAM_SUCCESS)
-		die_nwamerr(err, "scan request failed for %s", argv[0]);
-
-	err = nwam_wlan_scan(linkname);
-
-	if (err != NWAM_SUCCESS)
-		die_nwamerr(err, "scan request failed for %s", linkname);
-
-	free(linkname);
+	return (B_TRUE);
 }
 
 static void
 select_wifi_func(int argc, char *argv[])
 {
 	nwam_error_t err;
-	char *linkname = NULL;
-	uint_t i, choice, num_wlans = 0;
-	uint32_t security_mode;
-	boolean_t have_key = B_FALSE;
+	nwam_event_t event;
+
+	uint_t i = 0, choice = 0, num_wlans = 0;
+
 	nwam_wlan_t *wlans = NULL;
-	char choicestr[NWAM_MAX_VALUE_LEN];
-	char modestr[NWAM_MAX_VALUE_LEN];
-	char essid[NWAM_MAX_VALUE_LEN];
-	char bssid[NWAM_MAX_VALUE_LEN];
+	nwam_wlan_t *mywlan = NULL;
+	dladm_wlan_eap_t *eap_data = NULL;
+	dladm_wlan_key_t *key = NULL;
+
+	char selection[3]; /* max num is "64" */
+
+	ofmt_status_t		oferr;
+	ofmt_field_t		*template, *of;
+	ofmt_handle_t		ofmt;
 
 	if (argc != 1)
 		die_usage(CMD_SELECT_WIFI);
 
-	if ((err = name_to_linkname(argv[0], &linkname)) != NWAM_SUCCESS) {
-		die_nwamerr(err, "could not retrieve scan results for %s",
-		    argv[0]);
-	}
-	err = nwam_wlan_get_scan_results(linkname, &num_wlans, &wlans);
+	if ((err = nwam_wlan_scan(argv[0])) != NWAM_SUCCESS)
+		die_nwamerr(err, "Scan request failed for %s", argv[0]);
+	else
+		(void) printf("Scanning on link %s ...\n", argv[0]);
 
-	if (err != NWAM_SUCCESS) {
-		die_nwamerr(err, "could not retrieve scan results for %s",
-		    linkname);
+	if ((err = nwam_events_init()) != NWAM_SUCCESS)
+		die_nwamerr(err, "Could not bind to receive events");
+
+	for (;;) {
+		if ((err = nwam_event_wait(&event)) == NWAM_SUCCESS &&
+		    event->nwe_type == NWAM_EVENT_TYPE_WLAN_SCAN_REPORT) {
+			nwam_event_free(event);
+			break;
+		} else if (err == NWAM_SUCCESS) {
+			nwam_event_free(event);
+		} else {
+			die_nwamerr(err, "Event handling stopped");
+		}
 	}
-	bssid[0] = '\0';
+	nwam_events_fini();
+
+	if ((err = nwam_wlan_get_scan_results(argv[0], &num_wlans, &wlans)) !=
+	    NWAM_SUCCESS) {
+		die_nwamerr(err, "Could not retrieve scan results for %s",
+		    argv[0]);
+	} else if (num_wlans == 0) {
+		(void) printf("No wireless networks found during last scan(%s)",
+		    argv[0]);
+	} else {
+		template = scanres_common_fields;
+		for (of = template; of->of_name != NULL; of++) {
+			if (of->of_cb == NULL)
+				of->of_cb = do_print_nww_attr_cb;
+		}
+
+		oferr = ofmt_open(scanres_select_fields, template, 0, 0, &ofmt);
+		if (oferr != OFMT_SUCCESS) {
+			char buf[DLADM_STRSIZE];
+			free(wlans);
+			die("Internal Error %s", ofmt_strerror(ofmt, oferr,
+			    buf, sizeof (buf)));
+		}
+	}
+	(void) printf("\n");
+	for (i = 0; i < num_wlans; i++)
+		ofmt_print(ofmt, &wlans[i]);
+	ofmt_close(ofmt);
+
+	(void) printf(gettext("\n%d)  Specify a different AP\n"), i + 1);
+	(void) printf(gettext("\nChoose WLAN to connect to [1-%d]: "), i + 1);
 
 	/* Loop until valid selection made */
 	for (;;) {
-		(void) printf("\n");
-		/* Display WLAN choices for user to select from */
-		for (i = 0; i < num_wlans; i++) {
-			(void) printf("%d: ESSID %s BSSID %s\n",
-			    i + 1, wlans[i].nww_essid, wlans[i].nww_bssid);
-		}
-		(void) printf(gettext("%d: Other\n"), i + 1);
-
-		(void) printf(gettext("\nChoose WLAN to connect to [1-%d]: "),
-		    i + 1);
-
-		if (fgets(choicestr, sizeof (choicestr), stdin) != NULL &&
-		    (choice = atoi(choicestr)) >= 1 && choice <= (i + 1))
+		if (fgets(selection, 3, stdin) != NULL &&
+		    (choice = atoi(selection)) >= 1 && choice > 0 &&
+		    choice <= (i + 1))
 			break;
 	}
 
-	if (choice == i + 1 || wlans[choice - 1].nww_essid[0] == '\0') {
-		nwam_known_wlan_handle_t kwh = NULL;
-		nwam_value_t keynameval = NULL;
-
-		/* If "Other" or a hidden WLAN is selected, ask for ESSID */
-		do {
-			(void) printf(gettext("\nEnter WLAN name: "));
-			while (fgets(essid, sizeof (essid), stdin) == NULL) {}
-			essid[strlen(essid) - 1] = '\0';
-		} while (strspn(essid, " \t") == strlen(essid));
-
-		/* If "Other" was selected, secmode must be specified. */
-		if (choice == i + 1) {
-			for (;;) {
-				(void) printf(gettext("1: None\n"));
-				(void) printf(gettext("2: WEP\n"));
-				(void) printf(gettext("3: WPA\n"));
-				(void) printf(gettext("Enter security mode: "));
-				if (fgets(modestr, sizeof (choicestr), stdin)
-				    != NULL &&
-				    (security_mode = atoi(modestr)) >= 1 &&
-				    security_mode <= 3)
-					break;
-			}
-		} else {
-			security_mode = wlans[choice - 1].nww_security_mode;
-			have_key = wlans[choice - 1].nww_have_key;
-		}
-
-		/*
-		 * We have to determine if we have a key for this ESSID from
-		 * the known WLAN list, since we cannot determine this from
-		 * the scan results.
-		 */
-		if (nwam_known_wlan_read(essid, 0, &kwh) == NWAM_SUCCESS &&
-		    nwam_known_wlan_get_prop_value(kwh,
-		    NWAM_KNOWN_WLAN_PROP_KEYNAME, &keynameval) == NWAM_SUCCESS)
-			have_key = B_TRUE;
-		else
-			have_key = B_FALSE;
-
-		nwam_value_free(keynameval);
-		nwam_known_wlan_free(kwh);
+	if (choice != i + 1) {
+		mywlan = &wlans[choice - 1];
 	} else {
-		(void) strlcpy(essid, wlans[choice - 1].nww_essid,
-		    sizeof (essid));
-		(void) strlcpy(bssid, wlans[choice - 1].nww_bssid,
-		    sizeof (bssid));
-		security_mode = wlans[choice - 1].nww_security_mode;
-		have_key = wlans[choice - 1].nww_have_key;
-	}
-
-	if (security_mode != DLADM_WLAN_SECMODE_NONE && !have_key) {
-		uint_t keyslot = 1;
-		char key[NWAM_MAX_VALUE_LEN];
-		char slotstr[NWAM_MAX_VALUE_LEN];
-
-		do {
-			(void) printf(gettext("\nEnter WLAN key for "
-			    "ESSID %s: "), essid);
-			while (fgets(key, sizeof (key), stdin) == NULL) {}
-			key[strlen(key) - 1] = '\0';
-		} while (strspn(key, " \t") == strlen(key));
-
-		if (security_mode == DLADM_WLAN_SECMODE_WEP) {
-			for (;;) {
-				(void) printf(
-				    gettext("\nEnter key slot [1-4]: "));
-				if (fgets(slotstr, sizeof (slotstr), stdin)
-				    != NULL && (keyslot = atoi(slotstr)) >= 1 &&
-				    keyslot <= 4)
-					break;
-			}
+		mywlan = calloc(1, sizeof (nwam_wlan_t));
+		if (mywlan == NULL) {
+			free(wlans);
+			die("Out of Memory");
 		}
-
-		err = nwam_wlan_set_key(linkname, essid, bssid, security_mode,
-		    keyslot, key);
-		if (err != NWAM_SUCCESS)
-			die_nwamerr(err, "could not set WiFi key");
 	}
-	err = nwam_wlan_select(linkname, essid, bssid[0] != '\0' ? bssid : NULL,
-	    security_mode, B_TRUE);
+
+	/*
+	 * If "Other" or a hidden WLAN is selected, ask for ESSID
+	 * In this case we won't search if this ESSID is a known wlan
+	 * To perform this search we require bssid
+	 */
+	if (mywlan->nww_esslen == 0) {
+		char tmpess[DLADM_WLAN_MAX_ESSID_LEN+1];
+		do {
+			(void) memset(tmpess, 0, sizeof (tmpess));
+			(void) printf(gettext("\nEnter Wlan SSID (max 32 chars)"
+			    ": "));
+			while (fgets(tmpess, sizeof (tmpess), stdin) == NULL) {}
+		} while (strspn(tmpess, " \n\t") ==
+		    strnlen(tmpess, DLADM_WLAN_MAX_ESSID_LEN));
+		mywlan->nww_esslen = strnlen(tmpess, DLADM_WLAN_MAX_ESSID_LEN);
+		mywlan->nww_esslen--;
+		(void) memcpy(mywlan->nww_essid, tmpess, mywlan->nww_esslen);
+	}
+
+	/* "Other" was selected - Get Secmode */
+	if (choice == i + 1) {
+		for (;;) {
+			uint_t j;
+			char secmode_name[8];
+			for (j = DLADM_WLAN_SECMODE_NONE;
+			    j <= DLADM_WLAN_SECMODE_EAP; j++)
+				(void) printf("\n%d: %s", j,
+				    dladm_wlan_secmode2str(j, secmode_name));
+			(void) printf(gettext("\nEnter security mode: "));
+			if (fgets(selection, 2, stdin) != NULL &&
+			    (mywlan->nww_security_mode = atoi(selection)) &&
+			    mywlan->nww_security_mode <= DLADM_WLAN_SECMODE_EAP)
+				break;
+		}
+	}
+
+	/* It is not a known wlan */
+	if (mywlan->nww_wlanid == 0 &&
+	    mywlan->nww_security_mode != DLADM_WLAN_SECMODE_NONE) {
+		key = calloc(1, sizeof (dladm_wlan_key_t));
+
+		if (mywlan->nww_security_mode == DLADM_WLAN_SECMODE_EAP)
+			eap_data = calloc(1, sizeof (dladm_wlan_eap_t));
+		prompt_sec_policy(mywlan->nww_security_mode, key, eap_data);
+	}
+
+	(void) printf(gettext("\nConnecting link %s ...\n"), argv[0]);
+	err = nwam_wlan_select(argv[0], mywlan, key, eap_data);
 	if (err != NWAM_SUCCESS)
-		die_nwamerr(err, "could not select WLAN %s", essid);
-	free(wlans);
-	free(linkname);
+		(void) printf(gettext("\nCould not select WLAN %s [%s]\n"),
+		    mywlan->nww_essid, nwam_strerror(err));
+	if (choice == i + 1)
+		free(mywlan);
+	if (wlans != NULL)
+		free(wlans);
+	if (key != NULL)
+		free(key);
+	if (eap_data != NULL)
+		free(eap_data);
+
+	if ((err = nwam_events_init()) != NWAM_SUCCESS)
+		die_nwamerr(err, "Could not bind to receive events");
+
+	for (;;) {
+		if ((err = nwam_event_wait(&event)) == NWAM_SUCCESS &&
+		    (event->nwe_type ==
+		    NWAM_EVENT_TYPE_WLAN_CONNECTION_REPORT ||
+		    event->nwe_type ==
+		    NWAM_EVENT_TYPE_WLAN_DISASSOCIATION_REPORT ||
+		    event->nwe_type == NWAM_EVENT_TYPE_WLAN_WRONG_KEY)) {
+			nwam_event_free(event);
+			break;
+		} else if (err == NWAM_SUCCESS) {
+			nwam_event_free(event);
+		} else {
+			die_nwamerr(err, "Event handling stopped");
+		}
+	}
+
+	nwam_events_fini();
 }
 
 int

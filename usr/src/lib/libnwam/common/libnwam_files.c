@@ -192,6 +192,7 @@ nwam_line_to_object(char *line, char **objname, void *proplist)
 		}
 		valbool = NULL;
 		valint = NULL;
+		valuint = NULL;
 		valstr = NULL;
 		switch (proptype) {
 		case NWAM_VALUE_TYPE_BOOLEAN:
@@ -259,6 +260,7 @@ nwam_line_to_object(char *line, char **objname, void *proplist)
 			if ((newvalbool = realloc(valbool,
 			    nelem * sizeof (boolean_t))) == NULL) {
 				nwam_free_object_list(*((char **)proplist));
+				free(valbool);
 				return (NWAM_NO_MEMORY);
 			}
 			if ((err = nwam_value_create_boolean_array(newvalbool,
@@ -277,6 +279,7 @@ nwam_line_to_object(char *line, char **objname, void *proplist)
 			if ((newvalint = realloc(valint,
 			    nelem * sizeof (int64_t))) == NULL) {
 				nwam_free_object_list(*((char **)proplist));
+				free(valint);
 				return (NWAM_NO_MEMORY);
 			}
 			if ((err = nwam_value_create_int64_array(newvalint,
@@ -295,6 +298,7 @@ nwam_line_to_object(char *line, char **objname, void *proplist)
 			if ((newvaluint = realloc(valuint,
 			    nelem * sizeof (uint64_t))) == NULL) {
 				nwam_free_object_list(*((char **)proplist));
+				free(valuint);
 				return (NWAM_NO_MEMORY);
 			}
 			if ((err = nwam_value_create_uint64_array(newvaluint,
@@ -313,6 +317,7 @@ nwam_line_to_object(char *line, char **objname, void *proplist)
 			if ((newvalstr = realloc(valstr,
 			    nelem * sizeof (char *))) == NULL) {
 				nwam_free_object_list(*((char **)proplist));
+				free(valstr);
 				return (NWAM_NO_MEMORY);
 			}
 			if ((err = nwam_value_create_string_array(newvalstr,
@@ -330,6 +335,8 @@ nwam_line_to_object(char *line, char **objname, void *proplist)
 				free(newvalstr[i]);
 			free(newvalstr);
 			nwam_value_free(val);
+			break;
+		default:
 			break;
 		}
 		prop = nextprop;
@@ -421,7 +428,7 @@ nwam_read_object_from_files_backend(char *filename, char *objname,
 	char *cp, *foundobjname, **objnames = NULL, **ncpfiles = NULL;
 	uint_t num_files = 0;
 	FILE *fp = NULL;
-	nwam_error_t err;
+	nwam_error_t err = NWAM_SUCCESS;
 	void *objlist = NULL, *proplist = NULL;
 	uint_t i = 0, j = 0;
 	nwam_value_t objnamesval = NULL;

@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _NCP_H
@@ -28,7 +29,6 @@
 
 #include <libdladm.h>
 #include <libdlpi.h>
-#include <libdlwlan.h>
 #include <libnwam.h>
 #include <libuutil.h>
 #include <pthread.h>

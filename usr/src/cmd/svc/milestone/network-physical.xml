@@ -93,6 +93,20 @@
 
 	<instance name='nwam' enabled='false'>
 
+	<!--
+		wpa_supplicant just opens global control interface and waits for
+		wpa_ctrl to add an interface (could be wired OR wireless)
+	-->
+	<!--
+	<dependency
+		name='wpa_supplicant'
+		grouping='require_all'
+		restart_on='none'
+		type='service'>
+		<service_fmri value='svc:/network/wpa_supplicant' />
+	</dependency>
+	-->
+
 	<exec_method
 		type='method'
 		name='start'
@@ -137,12 +151,10 @@
 	<property_group name='nwamd' type='application'>
 		<stability value='Unstable' />
 		<propval name='debug' type='boolean' value='false' />
-		<propval name='autoconf' type='boolean' value='false' />
 		<propval name='ncu_wait_time' type='count' value='60' />
 		<propval name='condition_check_interval' type='count'
 			value='120' />
-		<propval name='scan_interval' type='count' value='120' />
-		<propval name='scan_level' type='astring' value='weak' />
+		<propval name='scan_interval' type='count' value='0' />
 		<propval name='strict_bssid' type='boolean' value='false' />
 		<propval name='active_ncp' type='astring' value='Automatic' />
 		<propval name='value_authorization' type='astring'

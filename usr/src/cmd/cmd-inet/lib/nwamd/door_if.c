@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <auth_attr.h>
@@ -30,6 +31,7 @@
 #include <door.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <libdlwlan.h>
 #include <libnwam_priv.h>
 #include <libuutil.h>
 #include <pthread.h>
@@ -84,8 +86,6 @@ static nwam_error_t nwamd_door_req_wlan_scan_results(nwamd_door_arg_t *,
 	ucred_t *, struct passwd *);
 static nwam_error_t nwamd_door_req_wlan_select(nwamd_door_arg_t *,
 	ucred_t *, struct passwd *);
-static nwam_error_t nwamd_door_req_wlan_set_key(nwamd_door_arg_t *,
-	ucred_t *, struct passwd *);
 static nwam_error_t nwamd_door_req_action(nwamd_door_arg_t *,
 	ucred_t *, struct passwd *);
 static nwam_error_t nwamd_door_req_state(nwamd_door_arg_t *,
@@ -111,8 +111,6 @@ struct nwamd_door_req_entry door_req_table[] =
 	nwamd_door_req_wlan_scan_results },
 	{ NWAM_REQUEST_TYPE_WLAN_SELECT, AUTOCONF_WLAN_AUTH,
 	nwamd_door_req_wlan_select },
-	{ NWAM_REQUEST_TYPE_WLAN_SET_KEY, AUTOCONF_WLAN_AUTH,
-	nwamd_door_req_wlan_set_key },
 	/* Requires WRITE, SELECT or WLAN auth depending on action */
 	{ NWAM_REQUEST_TYPE_ACTION, NULL, nwamd_door_req_action },
 	{ NWAM_REQUEST_TYPE_STATE, AUTOCONF_READ_AUTH,
@@ -188,12 +186,12 @@ nwamd_door_req_wlan_scan_results(nwamd_door_arg_t *req, ucred_t *ucr,
 
 	ncu = obj->nwamd_object_data;
 	link = &ncu->ncu_link;
-	num_wlans = link->nwamd_link_wifi_scan.nwamd_wifi_scan_curr_num;
+	num_wlans = link->nwamd_link_wifi_scan.nwamd_wifi_sres_num;
 
 	if (num_wlans > 0) {
 		(void) memcpy
 		    (req->nwda_data.nwdad_wlan_info.nwdad_wlans,
-		    link->nwamd_link_wifi_scan.nwamd_wifi_scan_curr,
+		    link->nwamd_link_wifi_scan.nwamd_wifi_sres,
 		    num_wlans * sizeof (nwam_wlan_t));
 	}
 	req->nwda_data.nwdad_wlan_info.nwdad_num_wlans = num_wlans;
@@ -210,38 +208,22 @@ static nwam_error_t
 nwamd_door_req_wlan_select(nwamd_door_arg_t *req, ucred_t *ucr,
     struct passwd *pwd)
 {
+	char tmpbuf[DLADM_WLAN_BSSID_LEN*3];
+        
 	nlog(LOG_DEBUG,
 	    "nwamd_door_req_wlan_select: processing WLAN selection : "
 	    "link %s ESSID %s , BSSID %s",
 	    req->nwda_data.nwdad_wlan_info.nwdad_name,
-	    req->nwda_data.nwdad_wlan_info.nwdad_essid,
-	    req->nwda_data.nwdad_wlan_info.nwdad_bssid);
+	    req->nwda_data.nwdad_wlan_info.nwdad_wlans[0].nww_essid,
+	    dladm_wlan_bssid2str(
+	    req->nwda_data.nwdad_wlan_info.nwdad_wlans[0].nww_bssid, tmpbuf));
 	return (nwamd_wlan_select
 	    (req->nwda_data.nwdad_wlan_info.nwdad_name,
-	    req->nwda_data.nwdad_wlan_info.nwdad_essid,
-	    req->nwda_data.nwdad_wlan_info.nwdad_bssid,
-	    req->nwda_data.nwdad_wlan_info.nwdad_security_mode,
-	    req->nwda_data.nwdad_wlan_info.nwdad_add_to_known_wlans));
-}
-
-/* ARGSUSED */
-static nwam_error_t
-nwamd_door_req_wlan_set_key(nwamd_door_arg_t *req, ucred_t *ucr,
-    struct passwd *pwd)
-{
-	nlog(LOG_DEBUG,
-	    "nwamd_door_req_wlan_set_key: processing WLAN key input : "
-	    "link %s ESSID %s BSSID %s",
-	    req->nwda_data.nwdad_wlan_info.nwdad_name,
-	    req->nwda_data.nwdad_wlan_info.nwdad_essid,
-	    req->nwda_data.nwdad_wlan_info.nwdad_bssid);
-	return (nwamd_wlan_set_key
-	    (req->nwda_data.nwdad_wlan_info.nwdad_name,
-	    req->nwda_data.nwdad_wlan_info.nwdad_essid,
-	    req->nwda_data.nwdad_wlan_info.nwdad_bssid,
-	    req->nwda_data.nwdad_wlan_info.nwdad_security_mode,
-	    req->nwda_data.nwdad_wlan_info.nwdad_keyslot,
-	    req->nwda_data.nwdad_wlan_info.nwdad_key));
+	    &req->nwda_data.nwdad_wlan_info.nwdad_wlans[0],
+	    req->nwda_data.nwdad_wlan_info.nwdad_key.wk_class ?
+	    &req->nwda_data.nwdad_wlan_info.nwdad_key : NULL,
+	    req->nwda_data.nwdad_wlan_info.nwdad_eap.eap_valid ?
+	    &req->nwda_data.nwdad_wlan_info.nwdad_eap : NULL));
 }
 
 static nwam_error_t
@@ -327,6 +309,9 @@ nwamd_door_req_action(nwamd_door_arg_t *req, ucred_t *ucr, struct passwd *pwd)
 			break;
 		case NWAM_OBJECT_TYPE_LOC:
 			err = nwamd_loc_action(name, action);
+			break;
+		case NWAM_OBJECT_TYPE_KNOWN_WLAN:
+			err = nwamd_known_wlan_action(name, action);
 			break;
 		case NWAM_OBJECT_TYPE_NCU:
 			err = nwamd_ncu_action(name, parent, action);
@@ -487,6 +472,7 @@ nwamd_door_req_state(nwamd_door_arg_t *req, ucred_t *ucr, struct passwd *pwd)
 	case NWAM_OBJECT_TYPE_LOC:
 	case NWAM_OBJECT_TYPE_NCU:
 	case NWAM_OBJECT_TYPE_ENM:
+	case NWAM_OBJECT_TYPE_KNOWN_WLAN:
 		obj = nwamd_object_find(object_type, name);
 		if (obj == NULL) {
 			nlog(LOG_ERR, "nwamd_door_req_state: %s %s not found",

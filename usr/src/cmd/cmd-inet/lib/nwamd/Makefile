@@ -31,7 +31,7 @@ PROG=		nwamd
 OBJS=		conditions.o dlpi_events.o door_if.o enm.o\
 		events.o known_wlans.o llp.o loc.o logging.o\
 		main.o ncp.o ncu.o ncu_phys.o ncu_ip.o objects.o\
-		routing_events.o sysevent_events.o util.o
+		routing_events.o sysevent_events.o wpa_s_events.o util.o
 SRCS=		$(OBJS:%.o=%.c)
 HEADERS=	conditions.h events.h known_wlans.h llp.h ncp.h ncu.h\
 		objects.h
@@ -96,7 +96,7 @@ $(ROOTLOCDIR): $(ROOTCFGDIR)
 	$(INS.dir)
 
 $(LOCDIRS): $(ROOTLOCDIR)
-	$(INS.dir) 
+	$(INS.dir)
 
 $(ROOTLOCDIR)/%: $(ROOTLOCDIR) %
 	$(INS.file)

@@ -21,14 +21,12 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inet/ip.h>
-#include <libdladm.h>
-#include <libdllink.h>
-#include <libdlwlan.h>
 #include <libscf.h>
 #include <netinet/in.h>
 #include <netdb.h>

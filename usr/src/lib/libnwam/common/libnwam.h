@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -39,6 +40,7 @@ extern "C" {
 #include <inet/ip6.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <secobj.h>
 
 /*
  * Note - several interface functions below are not utilized in ON, but are
@@ -93,11 +95,6 @@ extern "C" {
 					NWAM_FLAG_ACTIVATION_MODE_PRIORITIZED |\
 				NWAM_FLAG_ACTIVATION_MODE_CONDITIONAL_ANY |\
 				NWAM_FLAG_ACTIVATION_MODE_CONDITIONAL_ALL)
-
-/* Walk known WLANs in order of priority (lowest first) */
-#define	NWAM_FLAG_KNOWN_WLAN_WALK_PRIORITY_ORDER	0x000010000ULL << 32
-/* Do not perform priority collision checking for known WLANs */
-#define	NWAM_FLAG_KNOWN_WLAN_NO_COLLISION_CHECK		0x000020000ULL << 32
 
 /* nwam return codes */
 typedef enum {
@@ -233,11 +230,9 @@ typedef enum {
 	NWAM_AUX_STATE_METHOD_RUNNING,
 	NWAM_AUX_STATE_INVALID_CONFIG,
 	NWAM_AUX_STATE_ACTIVE,
-	/* Link-specific auxiliary states */
-	NWAM_AUX_STATE_LINK_WIFI_SCANNING,
-	NWAM_AUX_STATE_LINK_WIFI_NEED_SELECTION,
-	NWAM_AUX_STATE_LINK_WIFI_NEED_KEY,
-	NWAM_AUX_STATE_LINK_WIFI_CONNECTING,
+	/* Wifi Link-specific auxiliary states */
+	NWAM_AUX_STATE_LINK_WIFI_ASSOCIATED,
+	NWAM_AUX_STATE_LINK_WIFI_CONNECTED,
 	/* IP interface-specific auxiliary states */
 	NWAM_AUX_STATE_IF_WAITING_FOR_ADDR,
 	NWAM_AUX_STATE_IF_DHCP_TIMED_OUT,
@@ -284,9 +279,7 @@ typedef enum {
 	NWAM_CONDITION_OBJECT_TYPE_LOC,
 	NWAM_CONDITION_OBJECT_TYPE_IP_ADDRESS,
 	NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN,
-	NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN,
-	NWAM_CONDITION_OBJECT_TYPE_ESSID,
-	NWAM_CONDITION_OBJECT_TYPE_BSSID
+	NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN
 } nwam_condition_object_type_t;
 
 /*
@@ -476,12 +469,18 @@ typedef struct nwam_handle *nwam_enm_handle_t;
 
 typedef struct nwam_handle *nwam_known_wlan_handle_t;
 
-#define	NWAM_KNOWN_WLAN_PROP_BSSIDS		"bssids"
-#define	NWAM_KNOWN_WLAN_PROP_PRIORITY		"priority"
-#define	NWAM_KNOWN_WLAN_PROP_KEYNAME		"keyname"
-#define	NWAM_KNOWN_WLAN_PROP_KEYSLOT		"keyslot"
-#define	NWAM_KNOWN_WLAN_PROP_SECURITY_MODE	"security-mode"
-
+#define	NWAM_KNOWN_WLAN_PROP_SSID	"ssid"
+#define	NWAM_KNOWN_WLAN_PROP_BSSID	"bssid"
+#define	NWAM_KNOWN_WLAN_PROP_KEYNAME	"keyname"
+#define	NWAM_KNOWN_WLAN_PROP_PRIORITY	"priority"
+#define	NWAM_KNOWN_WLAN_PROP_DISABLED	"disabled"
+/* eap */
+#define	NWAM_KNOWN_WLAN_PROP_EAP_USER	"identity"
+#define	NWAM_KNOWN_WLAN_PROP_EAP_ANON	"anonymous_identity"
+#define	NWAM_KNOWN_WLAN_PROP_CA_CERT	"ca_cert"
+/* tls */
+#define	NWAM_KNOWN_WLAN_PROP_PRIV	"private_key"
+#define	NWAM_KNOWN_WLAN_PROP_CLI_CERT	"client_cert"
 /*
  * Location Functions
  */
@@ -816,7 +815,7 @@ extern nwam_error_t nwam_known_wlan_copy(nwam_known_wlan_handle_t, const char *,
     nwam_known_wlan_handle_t *);
 
 /* Commit known WLAN changes to persistent storage */
-extern nwam_error_t nwam_known_wlan_commit(nwam_known_wlan_handle_t, uint64_t);
+extern nwam_error_t nwam_known_wlan_commit(nwam_known_wlan_handle_t);
 
 /* Validate known WLAN content */
 extern nwam_error_t nwam_known_wlan_validate(nwam_known_wlan_handle_t,
@@ -824,7 +823,7 @@ extern nwam_error_t nwam_known_wlan_validate(nwam_known_wlan_handle_t,
 
 /* Walk known WLANs */
 extern nwam_error_t nwam_walk_known_wlans
-	(int(*)(nwam_known_wlan_handle_t, void *), void *, uint64_t, int *);
+	(int(*)(nwam_known_wlan_handle_t, void *), void *, int *);
 
 /* get/set known WLAN name */
 extern nwam_error_t nwam_known_wlan_get_name(nwam_known_wlan_handle_t, char **);
@@ -850,6 +849,7 @@ extern nwam_error_t nwam_known_wlan_validate_prop(nwam_known_wlan_handle_t,
 /* Retrieve data type */
 extern nwam_error_t nwam_known_wlan_get_prop_type(const char *,
     nwam_value_type_t *);
+
 /* Retrieve prop description */
 extern nwam_error_t nwam_known_wlan_get_prop_description(const char *,
     const char **);
@@ -858,44 +858,26 @@ extern nwam_error_t nwam_known_wlan_get_prop_description(const char *,
 extern nwam_error_t nwam_known_wlan_get_default_proplist(const char ***,
     uint_t *);
 
-/* Whether the property is multi-valued or not */
-extern nwam_error_t nwam_known_wlan_prop_multivalued(const char *, boolean_t *);
-
-/* Add a bssid to the known WLANs */
-extern nwam_error_t nwam_known_wlan_add_to_known_wlans(const char *,
-    const char *, uint32_t, uint_t, const char *);
-
-/* Remove a bssid from known WLANs */
+/* Remove from known WLANs */
 extern nwam_error_t nwam_known_wlan_remove_from_known_wlans(const char *,
     const char *, const char *);
 
-/*
- * nwam_wlan_t is used for scan/need choice/need key events and by
- * nwam_wlan_get_scan_results().  The following fields are valid:
- *
- * - for scan and need choice event, ESSID, BSSID, signal strength, security
- * mode, speed, channel, bsstype, key index, and if we already have a key
- * (have_key), if the WLAN is the current selection (selected) and
- * if the current WLAN is connected (connected).
- * - for need key events, ESSID, security mode, have_key, selected and connected
- * values are set.  The rest of the fields are not set since multiple WLANs
- * may match the ESSID and have different speeds, channels etc.  If an
- * ESSID/BSSID selection is specified, the BSSID will be set also.
- *
- */
 typedef struct {
-	char nww_essid[NWAM_MAX_NAME_LEN];
-	char nww_bssid[NWAM_MAX_NAME_LEN];
-	char nww_signal_strength[NWAM_MAX_NAME_LEN];
-	uint32_t nww_security_mode; /* a dladm_wlan_secmode_t */
-	uint32_t nww_speed; /* a dladm_wlan_speed_t */
-	uint32_t nww_channel; /* a dladm_wlan_channel_t */
-	uint32_t nww_bsstype; /* a dladm_wlan_bsstype_t */
-	uint_t nww_keyindex;
-	boolean_t nww_have_key;
-	boolean_t nww_selected;
-	boolean_t nww_connected;
+	uint32_t nww_wlanid;
+	uint8_t nww_bssid[8];
+	uint8_t nww_essid[34];
+	uint8_t nww_esslen;
+	uint8_t nww_security_mode; /* AP beacon security mode (wpa_ie+caps) */
+	uint16_t nww_freq; /* setting in Mhz */
+	uint8_t nww_strength; /* 0->127 */
+	uint8_t nww_rate;
+	uint16_t nww_scanid;
+	char	nww_ietxt[48];
 } nwam_wlan_t;
+
+/* Add known WLAN */
+extern nwam_error_t nwam_known_wlan_add_to_known_wlans(dladm_handle_t,
+    nwam_wlan_t *, dladm_wlan_key_t *, dladm_wlan_eap_t *, const char **);
 
 /*
  * Active WLAN definitions. Used to scan WLANs/choose a WLAN/set a WLAN key.
@@ -903,11 +885,9 @@ typedef struct {
 extern nwam_error_t nwam_wlan_scan(const char *);
 extern nwam_error_t nwam_wlan_get_scan_results(const char *, uint_t *,
     nwam_wlan_t **);
-extern nwam_error_t nwam_wlan_select(const char *, const char *, const char *,
-    uint32_t, boolean_t);
-extern nwam_error_t nwam_wlan_set_key(const char *, const char *, const char *,
-    uint32_t, uint_t, const char *);
-
+extern nwam_error_t nwam_wlan_select(const char *linkname,
+    const nwam_wlan_t *mywlan, const dladm_wlan_key_t *key_data,
+    const dladm_wlan_eap_t *eap_data);
 /*
  * Event notification definitions
  */
@@ -919,13 +899,14 @@ extern nwam_error_t nwam_wlan_set_key(const char *, const char *, const char *,
 #define	NWAM_EVENT_TYPE_PRIORITY_GROUP		5
 #define	NWAM_EVENT_TYPE_INFO			6
 #define	NWAM_EVENT_TYPE_WLAN_SCAN_REPORT	7
-#define	NWAM_EVENT_TYPE_WLAN_NEED_CHOICE	8
-#define	NWAM_EVENT_TYPE_WLAN_NEED_KEY		9
+#define	NWAM_EVENT_TYPE_WLAN_ASSOCIATION_REPORT	8
+#define	NWAM_EVENT_TYPE_WLAN_WRONG_KEY		9
 #define	NWAM_EVENT_TYPE_WLAN_CONNECTION_REPORT	10
-#define	NWAM_EVENT_TYPE_IF_ACTION		11
-#define	NWAM_EVENT_TYPE_IF_STATE		12
-#define	NWAM_EVENT_TYPE_LINK_ACTION		13
-#define	NWAM_EVENT_TYPE_LINK_STATE		14
+#define	NWAM_EVENT_TYPE_WLAN_DISASSOCIATION_REPORT 11
+#define	NWAM_EVENT_TYPE_IF_ACTION		12
+#define	NWAM_EVENT_TYPE_IF_STATE		13
+#define	NWAM_EVENT_TYPE_LINK_ACTION		14
+#define	NWAM_EVENT_TYPE_LINK_STATE		15
 #define	NWAM_EVENT_MAX				NWAM_EVENT_TYPE_LINK_STATE
 
 #define	NWAM_EVENT_STATUS_OK			0
@@ -935,6 +916,7 @@ extern nwam_error_t nwam_wlan_set_key(const char *, const char *, const char *,
 #define	NWAM_EVENT_NETWORK_OBJECT_LINK		1
 #define	NWAM_EVENT_NETWORK_OBJECT_INTERFACE	2
 
+/* Required by nwam-manager */
 #define	NWAM_EVENT_REQUEST_UNDEFINED		0
 #define	NWAM_EVENT_REQUEST_WLAN			1
 #define	NWAM_EVENT_REQUEST_KEY			2
@@ -993,21 +975,14 @@ struct nwam_event {
 		} nwe_info;
 
 		/*
-		 * wlan_info stores both scan results and the single
-		 * WLAN we require a key for in the case of _WLAN_NEED_KEY
-		 * events.  For _WLAN_CONNECTION_REPORT events, it stores
-		 * the WLAN the connection succeeded/failed for, indicating
-		 * success/failure using the 'connected' boolean.
+		 * wlan_info stores both scan results and the single WLAN.
+		 * For _WLAN_CONNECTION_REPORT events, it stores
+		 * the WLAN the connection succeeded/failed for
 		 */
 		struct nwam_event_wlan_info {
 			char nwe_name[NWAM_MAX_NAME_LEN];
-			boolean_t nwe_connected;
-			uint16_t nwe_num_wlans;
-			nwam_wlan_t nwe_wlans[1];
-			/*
-			 * space may be allocated by user here for the
-			 * number of wlans
-			 */
+			uint16_t nwe_scanres_num;
+			nwam_wlan_t nwe_wlan;
 		} nwe_wlan_info;
 
 		struct nwam_event_if_action {

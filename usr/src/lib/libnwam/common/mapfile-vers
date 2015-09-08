@@ -176,15 +176,12 @@ SYMBOL_VERSION SUNWprivate_1.1 {
 	nwam_known_wlan_set_prop_value;
 	nwam_known_wlan_validate_prop;
 	nwam_known_wlan_get_prop_type;
-	nwam_known_wlan_prop_multivalued;
 	nwam_known_wlan_get_prop_description;
 	nwam_known_wlan_get_default_proplist;
 	nwam_known_wlan_add_to_known_wlans;
-	nwam_known_wlan_remove_from_known_wlans;
 	nwam_wlan_scan;
 	nwam_wlan_get_scan_results;
 	nwam_wlan_select;
-	nwam_wlan_set_key;
 	nwam_events_init;
 	nwam_events_fini;
 	nwam_event_wait;

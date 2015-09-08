@@ -569,9 +569,14 @@ ieee80211_auth_open(ieee80211com_t *ic, struct ieee80211_frame *wh,
 		if (status != 0) {
 			ieee80211_dbg(IEEE80211_MSG_DEBUG | IEEE80211_MSG_AUTH,
 			    "open auth failed (reason %d)\n", status);
-			if (in != ic->ic_bss)
+			if (in != ic->ic_bss) {
 				in->in_fails++;
-			ieee80211_new_state(ic, IEEE80211_S_SCAN, 0);
+			} else {
+				IEEE80211_LOCK(ic);
+				ieee80211_notify_rejected(ic, in, status);
+				IEEE80211_UNLOCK(ic);
+			}
+			ieee80211_new_state(ic, IEEE80211_S_INIT, 0);
 		} else {
 			/* i_fc[0] - frame control's type & subtype field */
 			ieee80211_new_state(ic, IEEE80211_S_ASSOC,
@@ -678,6 +683,7 @@ ieee80211_auth_shared(ieee80211com_t *ic, struct ieee80211_frame *wh,
 				    IEEE80211_MSG_AUTH,
 				    "shared key auth failed (reason %d)\n",
 				    status);
+				ieee80211_notify_rejected(ic, in, status);
 				if (in != ic->ic_bss)
 					in->in_fails++;
 				return;
@@ -963,6 +969,9 @@ ieee80211_recv_beacon(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 				}
 			}
 			break;
+		case IEEE80211_ELEMID_PWRCNSTR:
+			/* Note: This avoid debugging msgs to be printed */
+			break;
 		default:
 			ieee80211_dbg(IEEE80211_MSG_ELEMID,
 			    "ieee80211_recv_mgmt: ignore %s,"
@@ -982,25 +991,6 @@ ieee80211_recv_beacon(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 		    "ieee80211_recv_mgmt: ignore %s ,"
 		    "invalid channel %u\n",
 		    IEEE80211_SUBTYPE_NAME(subtype), scan.chan);
-		return;
-	}
-	if (scan.chan != scan.bchan &&
-	    ic->ic_phytype != IEEE80211_T_FH) {
-		/*
-		 * Frame was received on a channel different from the
-		 * one indicated in the DS params element id;
-		 * silently discard it.
-		 *
-		 * NB:	this can happen due to signal leakage.
-		 *	But we should take it for FH phy because
-		 *	the rssi value should be correct even for
-		 *	different hop pattern in FH.
-		 */
-		ieee80211_dbg(IEEE80211_MSG_ELEMID,
-		    "ieee80211_recv_mgmt: ignore %s ,"
-		    "phytype %u channel %u marked for %u\n",
-		    IEEE80211_SUBTYPE_NAME(subtype),
-		    ic->ic_phytype, scan.bchan, scan.chan);
 		return;
 	}
 	if (!(IEEE80211_BINTVAL_MIN <= scan.bintval &&
@@ -1325,6 +1315,7 @@ ieee80211_recv_mgmt(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 		if (status != 0) {
 			ieee80211_dbg(IEEE80211_MSG_ASSOC,
 			    "assoc failed (reason %d)\n", status);
+			ieee80211_notify_rejected(ic, in, status);
 			in = ieee80211_find_node(&ic->ic_scan, wh->i_addr2);
 			if (in != NULL) {
 				in->in_fails++;
@@ -1390,7 +1381,7 @@ ieee80211_recv_mgmt(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 		IEEE80211_VERIFY_ELEMENT(rates, IEEE80211_RATE_MAXSIZE, break);
 		/*
 		 * Adjust and check AP's rate list with device's
-		 * supported rate. Re-start scan if no rate is or the
+		 * supported rate. Stop association if no rate is set or the
 		 * fixed rate(if being set) cannot be supported by
 		 * either AP or the device.
 		 */
@@ -1402,8 +1393,11 @@ ieee80211_recv_mgmt(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 			    "assoc failed (rate set mismatch)\n");
 			if (in != ic->ic_bss)
 				in->in_fails++;
+			else
+				ieee80211_notify_rejected(ic, in,
+				    IEEE80211_STATUS_BASIC_RATE);
 			IEEE80211_UNLOCK(ic);
-			ieee80211_new_state(ic, IEEE80211_S_SCAN, 0);
+			ieee80211_new_state(ic, IEEE80211_S_INIT, 0);
 			return;
 		}
 
@@ -1485,6 +1479,8 @@ ieee80211_recv_mgmt(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 		    "recv deauthenticate (reason %d)\n", status);
 		switch (ic->ic_opmode) {
 		case IEEE80211_M_STA:
+			if (in == ic->ic_bss)
+				ieee80211_notify_rejected(ic, in, status);
 			IEEE80211_UNLOCK(ic);
 			ieee80211_new_state(ic, IEEE80211_S_AUTH,
 			    wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK);
@@ -1510,6 +1506,8 @@ ieee80211_recv_mgmt(ieee80211com_t *ic, mblk_t *mp, struct ieee80211_node *in,
 		    "recv disassociate (reason %d)\n", status);
 		switch (ic->ic_opmode) {
 		case IEEE80211_M_STA:
+			if (in == ic->ic_bss)
+				ieee80211_notify_rejected(ic, in, status);
 			IEEE80211_UNLOCK(ic);
 			ieee80211_new_state(ic, IEEE80211_S_ASSOC,
 			    wh->i_fc[0] & IEEE80211_FC0_SUBTYPE_MASK);

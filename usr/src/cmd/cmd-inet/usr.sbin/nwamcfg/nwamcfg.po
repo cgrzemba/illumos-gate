@@ -1,0 +1,994 @@
+msgid  "clear <prop-name>"
+msgstr
+msgid  "create [-t <template>] <object-type> [<class>] "
+       "<object-name>"
+msgstr
+msgid  "destroy {-a | <object-type> [<class>] <object-name>}"
+msgstr
+msgid  "export [-d] [-f <output-file>] "
+       "[<object-type> [<class>] <object-name>]"
+msgstr
+msgid  "get [-V] <prop-name>"
+msgstr
+msgid  "help [command-name]"
+msgstr
+msgid  "list [-a] [<object-type> [<class>] <object-name>]"
+msgstr
+msgid  "select <object-type> [<class>] <object-name>"
+msgstr
+msgid  "set <prop-name>=<value1>[,<value2>...]"
+msgstr
+msgid  "walkprop [-a]"
+msgstr
+msgid  "activation-mode"
+msgstr
+msgid  "enabled"
+msgstr
+msgid  "type"
+msgstr
+msgid  "parent"
+msgstr
+msgid  "priority-group"
+msgstr
+msgid  "priority-mode"
+msgstr
+msgid  "link-mac-addr"
+msgstr
+msgid  "link-autopush"
+msgstr
+msgid  "link-mtu"
+msgstr
+msgid  "ip-version"
+msgstr
+msgid  "ipv4-addrsrc"
+msgstr
+msgid  "ipv4-addr"
+msgstr
+msgid  "ipv4-default-route"
+msgstr
+msgid  "ipv6-addrsrc"
+msgstr
+msgid  "ipv6-addr"
+msgstr
+msgid  "ipv6-default-route"
+msgstr
+msgid  "conditions"
+msgstr
+msgid  "fmri"
+msgstr
+msgid  "start"
+msgstr
+msgid  "stop"
+msgstr
+msgid  "nameservices"
+msgstr
+msgid  "nameservices-config-file"
+msgstr
+msgid  "dns-nameservice-configsrc"
+msgstr
+msgid  "dns-nameservice-domain"
+msgstr
+msgid  "dns-nameservice-servers"
+msgstr
+msgid  "dns-nameservice-search"
+msgstr
+msgid  "nis-nameservice-configsrc"
+msgstr
+msgid  "nis-nameservice-servers"
+msgstr
+msgid  "ldap-nameservice-configsrc"
+msgstr
+msgid  "ldap-nameservice-servers"
+msgstr
+msgid  "default-domain"
+msgstr
+msgid  "nfsv4-domain"
+msgstr
+msgid  "ipfilter-config-file"
+msgstr
+msgid  "ipfilter-v6-config-file"
+msgstr
+msgid  "ipnat-config-file"
+msgstr
+msgid  "ippool-config-file"
+msgstr
+msgid  "ike-config-file"
+msgstr
+msgid  "ipsecpolicy-config-file"
+msgstr
+msgid  "ssid"
+msgstr
+msgid  "bssid"
+msgstr
+msgid  "keyname"
+msgstr
+msgid  "priority"
+msgstr
+msgid  "disabled"
+msgstr
+msgid  "identity"
+msgstr
+msgid  "anonymous_identity"
+msgstr
+msgid  "ca_cert"
+msgstr
+msgid  "private_key"
+msgstr
+msgid  "client_cert"
+msgstr
+# msgid  "type"
+# msgstr
+# msgid  "parent"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "enabled"
+# msgstr
+# msgid  "priority-group"
+# msgstr
+# msgid  "priority-mode"
+# msgstr
+# msgid  "link-mac-addr"
+# msgstr
+# msgid  "link-autopush"
+# msgstr
+# msgid  "link-mtu"
+# msgstr
+# msgid  "ip-version"
+# msgstr
+# msgid  "ipv4-addrsrc"
+# msgstr
+# msgid  "ipv4-addr"
+# msgstr
+# msgid  "ipv4-default-route"
+# msgstr
+# msgid  "ipv6-addrsrc"
+# msgstr
+# msgid  "ipv6-addr"
+# msgstr
+# msgid  "ipv6-default-route"
+# msgstr
+# msgid  "fmri"
+# msgstr
+# msgid  "start"
+# msgstr
+# msgid  "stop"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "conditions"
+# msgstr
+# msgid  "enabled"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "conditions"
+# msgstr
+# msgid  "enabled"
+# msgstr
+# msgid  "nameservices"
+# msgstr
+# msgid  "nameservices-config-file"
+# msgstr
+# msgid  "dns-nameservice-configsrc"
+# msgstr
+# msgid  "dns-nameservice-domain"
+# msgstr
+# msgid  "dns-nameservice-servers"
+# msgstr
+# msgid  "dns-nameservice-search"
+# msgstr
+# msgid  "nis-nameservice-configsrc"
+# msgstr
+# msgid  "nis-nameservice-servers"
+# msgstr
+# msgid  "ldap-nameservice-configsrc"
+# msgstr
+# msgid  "ldap-nameservice-servers"
+# msgstr
+# msgid  "default-domain"
+# msgstr
+# msgid  "nfsv4-domain"
+# msgstr
+# msgid  "ipfilter-config-file"
+# msgstr
+# msgid  "ipfilter-v6-config-file"
+# msgstr
+# msgid  "ipnat-config-file"
+# msgstr
+# msgid  "ippool-config-file"
+# msgstr
+# msgid  "ike-config-file"
+# msgstr
+# msgid  "ipsecpolicy-config-file"
+# msgstr
+# msgid  "ssid"
+# msgstr
+# msgid  "bssid"
+# msgstr
+# msgid  "keyname"
+# msgstr
+# msgid  "priority"
+# msgstr
+# msgid  "disabled"
+# msgstr
+# msgid  "identity"
+# msgstr
+# msgid  "anonymous_identity"
+# msgstr
+# msgid  "ca_cert"
+# msgstr
+# msgid  "private_key"
+# msgstr
+# msgid  "client_cert"
+# msgstr
+msgid  "create "
+msgstr
+msgid  "destroy "
+msgstr
+msgid  "end "
+msgstr
+msgid  "exit "
+msgstr
+msgid  "export "
+msgstr
+msgid  "help "
+msgstr
+msgid  "list "
+msgstr
+msgid  "select "
+msgstr
+msgid  "create loc "
+msgstr
+msgid  "create enm "
+msgstr
+msgid  "create ncp "
+msgstr
+msgid  "create wlan "
+msgstr
+msgid  "create -t "
+msgstr
+msgid  "destroy -a "
+msgstr
+msgid  "destroy loc "
+msgstr
+msgid  "destroy enm "
+msgstr
+msgid  "destroy ncp "
+msgstr
+msgid  "destroy wlan "
+msgstr
+# msgid  "export "
+# msgstr
+msgid  "export -d "
+msgstr
+msgid  "export -f "
+msgstr
+msgid  "export -d -f "
+msgstr
+msgid  "export loc "
+msgstr
+msgid  "export enm "
+msgstr
+msgid  "export ncp "
+msgstr
+msgid  "export wlan "
+msgstr
+# msgid  "list "
+# msgstr
+msgid  "list loc "
+msgstr
+msgid  "list enm "
+msgstr
+msgid  "list ncp "
+msgstr
+msgid  "list wlan "
+msgstr
+msgid  "list -a loc "
+msgstr
+msgid  "list -a enm "
+msgstr
+msgid  "list -a wlan "
+msgstr
+msgid  "select loc "
+msgstr
+msgid  "select enm "
+msgstr
+msgid  "select ncp "
+msgstr
+msgid  "select wlan "
+msgstr
+msgid  "cancel "
+msgstr
+msgid  "clear "
+msgstr
+msgid  "commit "
+msgstr
+# msgid  "end "
+# msgstr
+# msgid  "exit "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export -f "
+# msgstr
+msgid  "get "
+msgstr
+msgid  "get -V "
+msgstr
+# msgid  "help "
+# msgstr
+# msgid  "list "
+# msgstr
+msgid  "list -a "
+msgstr
+msgid  "revert "
+msgstr
+msgid  "verify "
+msgstr
+msgid  "walkprop "
+msgstr
+msgid  "walkprop -a "
+msgstr
+# msgid  "cancel "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "end "
+# msgstr
+# msgid  "exit "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "help "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "select "
+# msgstr
+msgid  "create ncu ip "
+msgstr
+msgid  "create ncu phys "
+msgstr
+# msgid  "create -t "
+# msgstr
+msgid  "destroy ncu "
+msgstr
+msgid  "destroy ncu ip "
+msgstr
+msgid  "destroy ncu phys "
+msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export -f "
+# msgstr
+msgid  "export ncu "
+msgstr
+msgid  "export ncu ip "
+msgstr
+msgid  "export ncu phys "
+msgstr
+# msgid  "list "
+# msgstr
+msgid  "list ncu "
+msgstr
+msgid  "list ncu ip "
+msgstr
+msgid  "list ncu phys "
+msgstr
+msgid  "list -a ncu "
+msgstr
+msgid  "list -a ncu ip "
+msgstr
+msgid  "list -a ncu phys "
+msgstr
+msgid  "select ncu "
+msgstr
+msgid  "select ncu ip "
+msgstr
+msgid  "select ncu phys "
+msgstr
+msgid  "Out of memory"
+msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "create "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "destroy "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "export "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "list "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+# msgid  "select "
+# msgstr
+msgid  "cmd_num >= CMD_MIN && cmd_num <= CMD_MAX"
+msgstr
+msgid  "nwamcfg.c"
+msgstr
+msgid  "res_type >= RT1_MIN && res_type <= RT1_MAX"
+msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "res_type >= RT2_MIN && res_type <= RT2_MAX"
+msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "global"
+msgstr
+msgid  "invalid"
+msgstr
+msgid  "prop_type >= PT_MIN && prop_type <= PT_MAX"
+msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "t"
+msgstr
+# /*
+#  * TRANSLATION_NOTE
+#  * Each string below should have \t follow \n whenever needed; the
+#  * initial \t and the terminal \n will be provided by the calling function.
+#  */
+# msgid  "cmd_num >= CMD_MIN && cmd_num <= CMD_MAX"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "Cancels the current configuration "
+       "changes."
+msgstr
+msgid  "Clears the value for the specified "
+       "property."
+msgstr
+msgid  "Commits the current configuration."
+msgstr
+msgid  "Creates a new profile or resource."
+msgstr
+msgid  "Destroys the specified profile or "
+       "resource."
+msgstr
+msgid  "Ends specification of a resource."
+msgstr
+msgid  "Exits the program."
+msgstr
+msgid  "Exports the configuration."
+msgstr
+msgid  "Gets the value of the specified "
+       "property."
+msgstr
+msgid  "Prints help message."
+msgstr
+msgid  "Lists existing objects."
+msgstr
+msgid  "Reverts to the previous "
+       "configuration."
+msgstr
+msgid  "Selects a resource to modify."
+msgstr
+msgid  "Sets the value of the specified "
+       "property."
+msgstr
+msgid  "Verifies an object."
+msgstr
+msgid  "Iterates over properties."
+msgstr
+msgid  "Unknown command."
+msgstr
+msgid  "Unknown command"
+msgstr
+msgid  "Error"
+msgstr
+msgid  "usage"
+msgstr
+# msgid  "usage"
+# msgstr
+# msgid  "usage"
+# msgstr
+msgid  "interactive-mode"
+msgstr
+msgid  "command"
+msgstr
+msgid  "options"
+msgstr
+msgid  "command-file"
+msgstr
+# msgid  "command"
+# msgstr
+msgid  "-"
+msgstr
+msgid  "On line %d:\n"
+msgstr
+msgid  "On line %d of %s:\n"
+msgstr
+msgid  "Invalid property: '%s'"
+msgstr
+msgid  "Configuration not saved; really quit"
+msgstr
+msgid  "problem creating temporary file"
+msgstr
+msgid  "::::> "
+msgstr
+msgid  "Invalid scope"
+msgstr
+msgid  "'%s' is not allowed at this scope"
+msgstr
+msgid  "Committed changes\n"
+msgstr
+msgid  "Commit error on property '%s'"
+msgstr
+msgid  "Commit error"
+msgstr
+msgid  "Nothing to commit\n"
+msgstr
+# msgid  "Invalid scope"
+# msgstr
+msgid  "cannot create ncu at global scope"
+msgstr
+msgid  "Cannot create given object at this scope"
+msgstr
+msgid  "cmd->cmd_argc > 0"
+msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "t:"
+msgstr
+msgid  "Create error: NCP has not been read"
+msgstr
+msgid  "Invalid known wlan name: "
+       "Only positive decimal numbers are valid"
+msgstr
+msgid  "Create error"
+msgstr
+msgid  "Copy error: NCP has not been read"
+msgstr
+msgid  "Copy error"
+msgstr
+msgid  "Created %s '%s'.  "
+       "Walking properties ...\n"
+msgstr
+msgid  "Copy error reading '%s'"
+msgstr
+msgid  "%s '%s' cannot be removed\n"
+msgstr
+msgid  "remove_all_configurations"
+msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "All user-defined entities destroyed\n"
+msgstr
+msgid  "Destroy error: "
+       "could not destroy all configurations"
+msgstr
+msgid  "Destroy error: only NCUs can be destroyed in NCP scope"
+msgstr
+# msgid  "cmd->cmd_argc > 0"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "Cannot destroy all configurations in a "
+       "non-global scope"
+msgstr
+msgid  "a"
+msgstr
+msgid  "Destroy ncu error: NCP has not been read"
+msgstr
+msgid  "Destroy error: unknown object-type"
+msgstr
+msgid  "Destroy error: active entity cannot be destroyed"
+msgstr
+msgid  "Destroy error"
+msgstr
+msgid  "Destroyed %s '%s'\n"
+msgstr
+msgid  "Configuration not saved; really end"
+msgstr
+msgid  "Exit error"
+msgstr
+msgid  "commands:\n"
+msgstr
+msgid  "Unknown command: '%s'\n"
+msgstr
+msgid  "Revert error: Get ncu type error"
+msgstr
+msgid  "%s '%s' does not exist to revert to, removing it"
+msgstr
+msgid  "Revert error"
+msgstr
+msgid  "Revert error: get name error"
+msgstr
+# msgid  "cmd->cmd_argc > 0"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "cannot select '%s' at this scope"
+msgstr
+msgid  "Select error: NCP has not been read"
+msgstr
+msgid  "Select error: unknown object-type"
+msgstr
+msgid  "Select error"
+msgstr
+# msgid  "Out of memory"
+# msgstr
+# msgid  "Out of memory"
+# msgstr
+# msgid  "Out of memory"
+# msgstr
+# msgid  "Out of memory"
+# msgstr
+msgid  "Failed creating nwam_value"
+msgstr
+# msgid  "priority-group"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "priority-mode"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "ipv4-addrsrc"
+# msgstr
+# msgid  "ip-version"
+# msgstr
+# msgid  "ipv4-addr"
+# msgstr
+# msgid  "ipv4-addrsrc"
+# msgstr
+# msgid  "ipv4-default-route"
+# msgstr
+# msgid  "ip-version"
+# msgstr
+# msgid  "ipv6-addrsrc"
+# msgstr
+# msgid  "ip-version"
+# msgstr
+# msgid  "ipv6-addr"
+# msgstr
+# msgid  "ipv6-addrsrc"
+# msgstr
+# msgid  "ipv6-default-route"
+# msgstr
+# msgid  "ip-version"
+# msgstr
+# msgid  "conditions"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "conditions"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "dns-nameservice-configsrc"
+# msgstr
+# msgid  "nameservices"
+# msgstr
+# msgid  "dns-nameservice-domain"
+# msgstr
+# msgid  "dns-nameservice-configsrc"
+# msgstr
+# msgid  "dns-nameservice-servers"
+# msgstr
+# msgid  "dns-nameservice-configsrc"
+# msgstr
+# msgid  "dns-nameservice-search"
+# msgstr
+# msgid  "dns-nameservice-configsrc"
+# msgstr
+# msgid  "nis-nameservice-configsrc"
+# msgstr
+# msgid  "nameservices"
+# msgstr
+# msgid  "nis-nameservice-servers"
+# msgstr
+# msgid  "nis-nameservice-configsrc"
+# msgstr
+# msgid  "ldap-nameservice-configsrc"
+# msgstr
+# msgid  "nameservices"
+# msgstr
+# msgid  "ldap-nameservice-servers"
+# msgstr
+# msgid  "ldap-nameservice-configsrc"
+# msgstr
+# msgid  "default-domain"
+# msgstr
+# msgid  "nis-nameservice-configsrc"
+# msgstr
+# msgid  "default-domain"
+# msgstr
+# msgid  "ldap-nameservice-configsrc"
+# msgstr
+# msgid  "identity"
+# msgstr
+# msgid  "keyname"
+# msgstr
+# msgid  "anonymous_identity"
+# msgstr
+# msgid  "keyname"
+# msgstr
+# msgid  "ca_cert"
+# msgstr
+# msgid  "keyname"
+# msgstr
+# msgid  "private_key"
+# msgstr
+# msgid  "keyname"
+# msgstr
+# msgid  "client_cert"
+# msgstr
+# msgid  "private_key"
+# msgstr
+# msgid  "client_cert"
+# msgstr
+# msgid  "keyname"
+# msgstr
+msgid  "Set error"
+msgstr
+msgid  "Set error: invalid value\n'%s' %s"
+msgstr
+# msgid  "cmd->cmd_argc > 0"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "Set error: invalid %s property: '%s'"
+msgstr
+msgid  "Set error: property '%s' is read-only"
+msgstr
+msgid  "setting property '%s' "
+       "has no effect\n"
+msgstr
+msgid  "List error: failed to get name"
+msgstr
+msgid  "List error: failed to get ncu class"
+msgstr
+msgid  "true"
+msgstr
+msgid  "false"
+msgstr
+msgid  "Get value type error"
+msgstr
+msgid  "Get string array error"
+msgstr
+msgid  "Get int64 array error"
+msgstr
+msgid  "Get uint64 array error"
+msgstr
+msgid  "Get boolean array error"
+msgstr
+msgid  "'list' requires an object to be specified with "
+       "the -a option in the global scope"
+msgstr
+msgid  "Additional options are not allowed with the -a option "
+       "at this scope"
+msgstr
+msgid  "only ncu can be listed at this scope"
+msgstr
+# msgid  "a"
+# msgstr
+msgid  "NCP has not been read"
+msgstr
+msgid  "List error"
+msgstr
+msgid  "of != NULL"
+msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+# msgid  "of != NULL"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "Automatic"
+msgstr
+msgid  "Export ncp error: failed to walk ncus"
+msgstr
+# msgid  "of != NULL"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+# msgid  "of != NULL"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+# msgid  "Automatic"
+# msgstr
+msgid  "NoNet"
+msgstr
+msgid  "Legacy"
+msgstr
+# msgid  "of != NULL"
+# msgstr
+# msgid  "nwamcfg.c"
+# msgstr
+msgid  "df:"
+msgstr
+msgid  "w"
+msgstr
+msgid  "opening file '%s': %s"
+msgstr
+msgid  "Option -d is not allowed in non-global scope"
+msgstr
+msgid  "'export' does not take arguments at this scope"
+msgstr
+msgid  "only ncu can be exported at this scope"
+msgstr
+msgid  "cannot export ncu at from global scope"
+msgstr
+# msgid  "Invalid scope"
+# msgstr
+# msgid  "Automatic"
+# msgstr
+msgid  "'%s' ncp cannot be exported"
+msgstr
+# msgid  "Automatic"
+# msgstr
+# msgid  "NoNet"
+# msgstr
+# msgid  "Legacy"
+# msgstr
+msgid  "'%s' loc cannot be exported"
+msgstr
+msgid  "Export error"
+msgstr
+msgid  "V"
+msgstr
+msgid  "Get error: invalid %s property: '%s'"
+msgstr
+msgid  "Get error: property '%s' has not been set"
+msgstr
+msgid  "Get error"
+msgstr
+msgid  "Clear error: invalid %s property: '%s'"
+msgstr
+msgid  "Clear error: property '%s' is read-only"
+msgstr
+msgid  "Clear error: property '%s' has not been set"
+msgstr
+msgid  "Clear error"
+msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "activation-mode"
+# msgstr
+# msgid  "ldap-nameservice-configsrc"
+# msgstr
+# msgid  "ldap-nameservice-configsrc"
+# msgstr
+msgid  " ["
+msgstr
+msgid  "|"
+msgstr
+# msgid  "true"
+# msgstr
+# msgid  "false"
+# msgstr
+msgid  "'walkprop' is only allowed in interactive mode"
+msgstr
+# msgid  "a"
+# msgstr
+msgid  "'walkprop' cannot be used in read-only objects"
+msgstr
+msgid  "Walkprop error: could not get property list"
+msgstr
+msgid  "Walking all properties ...\n"
+msgstr
+msgid  " ("
+msgstr
+msgid  "Verify error on property '%s'"
+msgstr
+msgid  "All properties verified\n"
+msgstr
+# msgid  "Out of memory"
+# msgstr
+msgid  " "
+msgstr
+# msgid  "-"
+# msgstr
+msgid  "r"
+msgstr
+msgid  "could not open file '%s': %s"
+msgstr
+msgid  "could not stat file '%s': %s"
+msgstr
+msgid  "'%s' is not a regular file."
+msgstr
+msgid  "Configuration read.\n"
+msgstr
+msgid  "?hf:d"
+msgstr
+msgid  "Option -d can only be used with -f"
+msgstr

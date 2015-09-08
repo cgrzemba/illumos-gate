@@ -21,6 +21,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -37,7 +38,6 @@ extern "C" {
 #endif
 
 #include <libnwam_priv.h>
-#include <libnwam.h>
 
 /*
  * We separate global flags (which are applicable to all object types) from
@@ -199,7 +199,8 @@ extern nwam_error_t nwam_request_action(nwam_object_type_t, const char *,
 extern nwam_error_t nwam_request_state(nwam_object_type_t, const char *,
 	const char *, nwam_state_t *, nwam_aux_state_t *);
 extern nwam_error_t nwam_request_wlan(nwam_request_type_t, const char *,
-	const char *, const char *, uint32_t, uint_t, const char *, boolean_t);
+	const nwam_wlan_t *, const dladm_wlan_key_t *,
+	const dladm_wlan_eap_t *eap_data);
 extern nwam_error_t nwam_request_wlan_scan_results(const char *name,
 	uint_t *, nwam_wlan_t **);
 extern nwam_error_t nwam_request_active_priority_group(int64_t *);

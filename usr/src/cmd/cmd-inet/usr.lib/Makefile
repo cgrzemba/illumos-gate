@@ -27,7 +27,7 @@
 SUBDIRS=	bridged ilbd in.chargend in.daytimed \
 		in.discardd in.echod in.mpathd in.ndpd \
 		in.ripngd in.timed inetd mdnsd ncaconfd pppoe \
-		slpd vrrpd wanboot wpad
+		slpd vrrpd wanboot wpa_supplicant
 
 MSGSUBDIRS=	ilbd inetd ncaconfd vrrpd wanboot
 
@@ -54,7 +54,7 @@ install: $(SUBDIRS)
 	-$(LN) $(ISAEXEC) $(ROOTLIBINET)/in.iked
 
 
-_msg: $(MSGSUBDIRS)
+_msg: $(MSGSUBDIRS) 
 
 $(SUBDIRS): FRC
 	@cd $@; pwd; $(MAKE) $(MFLAGS) $(TARGET)

@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2014, Joyent, Inc. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <stdlib.h>
@@ -38,17 +38,15 @@
 #include <libdevinfo.h>
 #include <zone.h>
 #include <libdllink.h>
+#include <libdlwlan.h>
 #include <libdladm_impl.h>
 #include <libdlwlan_impl.h>
-#include <libdlwlan.h>
 #include <libdlvlan.h>
 #include <libdlvnic.h>
 #include <libdlib.h>
 #include <libintl.h>
 #include <dlfcn.h>
 #include <link.h>
-#include <inet/wifi_ioctl.h>
-#include <libdladm.h>
 #include <libdlstat.h>
 #include <sys/param.h>
 #include <sys/debug.h>
@@ -56,7 +54,6 @@
 #include <inttypes.h>
 #include <sys/ethernet.h>
 #include <inet/iptun.h>
-#include <net/wpa.h>
 #include <sys/sysmacros.h>
 #include <sys/vlan.h>
 #include <libdlbridge.h>
@@ -66,7 +63,6 @@
 #include <net/if_types.h>
 #include <libinetutil.h>
 #include <pool.h>
-#include <libdlaggr.h>
 
 /*
  * The linkprop get() callback.
@@ -151,18 +147,18 @@ static pd_getf_t	get_zone, get_autopush, get_rate_mod, get_rate,
 			get_flowctl, get_maxbw, get_cpus, get_priority,
 			get_tagmode, get_range, get_stp, get_bridge_forward,
 			get_bridge_pvid, get_protection, get_rxrings,
-			get_txrings, get_cntavail, get_secondary_macs,
+			get_txrings, get_cntavail,
 			get_allowedips, get_allowedcids, get_pool,
 			get_rings_range, get_linkmode_prop;
 
 static pd_setf_t	set_zone, set_rate, set_powermode, set_radio,
 			set_public_prop, set_resource, set_stp_prop,
-			set_bridge_forward, set_bridge_pvid, set_secondary_macs;
+			set_bridge_forward, set_bridge_pvid;
 
 static pd_checkf_t	check_zone, check_autopush, check_rate, check_hoplimit,
 			check_encaplim, check_uint32, check_maxbw, check_cpus,
 			check_stp_prop, check_bridge_pvid, check_allowedips,
-			check_allowedcids, check_secondary_macs, check_rings,
+			check_allowedcids, check_rings,
 			check_pool, check_prop;
 
 struct prop_desc {
@@ -284,13 +280,13 @@ static link_attr_t link_attr[] = {
 
 	{ MAC_PROP_EN_10HDX_CAP, sizeof (uint8_t),	"en_10hdx_cap"},
 
-	{ MAC_PROP_WL_ESSID,	sizeof (wl_linkstatus_t), "essid"},
+	{ MAC_PROP_WL_ESSID,	sizeof (wl_essid_t), "essid"},
 
 	{ MAC_PROP_WL_BSSID,	sizeof (wl_bssid_t),	"bssid"},
 
 	{ MAC_PROP_WL_BSSTYPE,	sizeof (wl_bss_type_t),	"bsstype"},
 
-	{ MAC_PROP_WL_LINKSTATUS, sizeof (wl_linkstatus_t), "wl_linkstatus"},
+	{ MAC_PROP_WL_LINKSTATUS, sizeof (wl_linkstatus_t), "linkstatus"},
 
 	/* wl_rates_t has variable length */
 	{ MAC_PROP_WL_DESIRED_RATES, sizeof (wl_rates_t), "desired_rates"},
@@ -310,8 +306,7 @@ static link_attr_t link_attr[] = {
 
 	{ MAC_PROP_WL_WPA,	sizeof (wl_wpa_t),	"wpa"},
 
-	/*  wl_wpa_ess_t has variable length */
-	{ MAC_PROP_WL_SCANRESULTS, sizeof (wl_wpa_ess_t), "scan_results"},
+	{ MAC_PROP_WL_COUNTERM,	sizeof (wl_counterm_t),	"tkip countermeasures"},
 
 	{ MAC_PROP_WL_POWER_MODE, sizeof (wl_ps_mode_t), "powermode"},
 
@@ -324,7 +319,7 @@ static link_attr_t link_attr[] = {
 	{ MAC_PROP_WL_CREATE_IBSS, sizeof (wl_create_ibss_t), "createibss"},
 
 	/* wl_wpa_ie_t has variable length */
-	{ MAC_PROP_WL_SETOPTIE,	sizeof (wl_wpa_ie_t),	"set_ie"},
+	{ MAC_PROP_WL_OPTIE,	sizeof (wl_wpa_ie_t),	"set_ie"},
 
 	{ MAC_PROP_WL_DELKEY,	sizeof (wl_del_key_t),	"wpa_del_key"},
 
@@ -364,9 +359,6 @@ static link_attr_t link_attr[] = {
 	{ MAC_PROP_MAX_TXHWCLNT_AVAIL,	sizeof (uint_t), "txhwclnt-available"},
 
 	{ MAC_PROP_IB_LINKMODE,	sizeof (uint32_t),	"linkmode"},
-
-	{ MAC_PROP_SECONDARY_ADDRS, sizeof (mac_secondary_addr_t),
-	    "secondary-macs"},
 
 	{ MAC_PROP_PRIVATE,	0,			"driver-private"}
 };
@@ -448,12 +440,6 @@ static  val_desc_t	dladm_part_linkmode_vals[] = {
 #define	RESET_VAL	((uintptr_t)-1)
 #define	UNSPEC_VAL	((uintptr_t)-2)
 
-/*
- * For the default, if defaults are not defined for the property,
- * pd_defval.vd_name should be null. If the driver has to be contacted for the
- * value, vd_name should be the empty string (""). Otherwise, dladm will
- * just print whatever is in the table.
- */
 static prop_desc_t	prop_table[] = {
 	{ "channel",	{ NULL, 0 },
 	    NULL, 0, NULL, NULL,
@@ -516,11 +502,6 @@ static prop_desc_t	prop_table[] = {
 	    link_flow_vals, VALCNT(link_flow_vals),
 	    set_public_prop, NULL, get_flowctl, NULL,
 	    0, DATALINK_CLASS_PHYS, DL_ETHER },
-
-	{ "secondary-macs", { "--", 0 }, NULL, 0,
-	    set_secondary_macs, NULL,
-	    get_secondary_macs, check_secondary_macs, PD_CHECK_ALLOC,
-	    DATALINK_CLASS_VNIC, DL_ETHER },
 
 	{ "adv_10gfdx_cap", { "", 0 },
 	    link_01_vals, VALCNT(link_01_vals),
@@ -784,15 +765,6 @@ static dladm_status_t	i_dladm_set_linkprop(dladm_handle_t, datalink_id_t,
 			    const char *, char **, uint_t, uint_t);
 static dladm_status_t	i_dladm_getset_defval(dladm_handle_t, prop_desc_t *,
 			    datalink_id_t, datalink_media_t, uint_t);
-
-/*
- * Unfortunately, MAX_SCAN_SUPPORT_RATES is too small to allow all
- * rates to be retrieved. However, we cannot increase it at this
- * time because it will break binary compatibility with unbundled
- * WiFi drivers and utilities. So for now we define an additional
- * constant, MAX_SUPPORT_RATES, to allow all rates to be retrieved.
- */
-#define	MAX_SUPPORT_RATES	64
 
 #define	AP_ANCHOR	"[anchor]"
 #define	AP_DELIMITER	'.'
@@ -1430,7 +1402,7 @@ get_zone(dladm_handle_t handle, prop_desc_t *pdp, datalink_id_t linkid,
 			return (dladm_errno2status(errno));
 		}
 
-		(void) strncpy(*prop_val, zone_name, DLADM_PROP_VAL_MAX);
+		(void) strlcpy(*prop_val, zone_name, DLADM_PROP_VAL_MAX);
 	} else {
 		*prop_val[0] = '\0';
 	}
@@ -2355,7 +2327,6 @@ get_allowedips(dladm_handle_t handle, prop_desc_t *pdp,
 		return (DLADM_STATUS_BADVALCNT);
 
 	for (i = 0; i < p->mp_ipaddrcnt; i++) {
-		int len;
 		if (p->mp_ipaddrs[i].ip_version == IPV4_VERSION) {
 			ipaddr_t	v4addr;
 
@@ -2365,9 +2336,6 @@ get_allowedips(dladm_handle_t handle, prop_desc_t *pdp,
 			(void) dladm_ipv6addr2str(&p->mp_ipaddrs[i].ip_addr,
 			    prop_val[i]);
 		}
-		len = strlen(prop_val[i]);
-		(void) sprintf(prop_val[i] + len, "/%d",
-		    p->mp_ipaddrs[i].ip_netmask);
 	}
 	*val_cnt = p->mp_ipaddrcnt;
 	return (DLADM_STATUS_OK);
@@ -2415,26 +2383,6 @@ check_single_ip(char *buf, mac_ipaddr_t *addr)
 	ipaddr_t	v4addr;
 	in6_addr_t	v6addr;
 	boolean_t	isv4 = B_TRUE;
-	char		*p;
-	uint32_t	mask = 0;
-
-	/*
-	 * If the IP address is in CIDR format, parse the bits component
-	 * seperately. An address in this style will be used to indicate an
-	 * entire subnet, so it must be a network number with no host address.
-	 */
-	if ((p = strchr(buf, '/')) != NULL) {
-		char *end = NULL;
-
-		*p++ = '\0';
-		if (!isdigit(*p))
-			return (DLADM_STATUS_INVALID_IP);
-		mask = strtol(p, &end, 10);
-		if (end != NULL && *end != '\0')
-			return (DLADM_STATUS_INVALID_IP);
-		if (mask > 128|| mask < 1)
-			return (DLADM_STATUS_INVALID_IP);
-	}
 
 	status = dladm_str2ipv4addr(buf, &v4addr);
 	if (status == DLADM_STATUS_INVALID_IP) {
@@ -2451,57 +2399,12 @@ check_single_ip(char *buf, mac_ipaddr_t *addr)
 
 		IN6_IPADDR_TO_V4MAPPED(v4addr, &addr->ip_addr);
 		addr->ip_version = IPV4_VERSION;
-		if (p != NULL) {
-			uint32_t smask;
-
-			/*
-			 * Validate the netmask is in the proper range for v4
-			 */
-			if (mask > 32 || mask < 1)
-				return (DLADM_STATUS_INVALID_IP);
-
-			/*
-			 * We have a CIDR style address, confirm that only the
-			 * network number is set.
-			 */
-			smask = 0xFFFFFFFFu << (32 - mask);
-			if (htonl(v4addr) & ~smask)
-				return (DLADM_STATUS_INVALID_IP);
-		} else {
-			mask = 32;
-		}
-		addr->ip_netmask = mask;
 	} else {
 		if (IN6_IS_ADDR_UNSPECIFIED(&v6addr))
 			return (DLADM_STATUS_INVALID_IP);
 
-		if (IN6_IS_ADDR_V4MAPPED_ANY(&v6addr))
-			return (DLADM_STATUS_INVALID_IP);
-
-		if (p != NULL) {
-			int i, off, high;
-
-			/*
-			 * Note that the address in our buffer is stored in
-			 * network byte order.
-			 */
-			off = 0;
-			for (i = 3; i >= 0; i--) {
-				high = ffsl(ntohl(v6addr._S6_un._S6_u32[i]));
-				if (high != 0)
-					break;
-				off += 32;
-			}
-			off += high;
-			if (128 - off >= mask)
-				return (DLADM_STATUS_INVALID_IP);
-		} else {
-			mask = 128;
-		}
-
 		addr->ip_addr = v6addr;
 		addr->ip_version = IPV6_VERSION;
-		addr->ip_netmask = mask;
 	}
 	return (DLADM_STATUS_OK);
 }
@@ -2667,7 +2570,7 @@ dladm_str2cid(char *buf, mac_dhcpcid_t *cid)
 	    ptr[strspn(ptr, "0123456789")] == '.') {
 		char	*cp;
 		ulong_t	duidtype;
-		ulong_t	subtype;
+		ulong_t	subtype = 0;
 		ulong_t	timestamp;
 		uchar_t	*lladdr;
 		int	addrlen;
@@ -2882,106 +2785,6 @@ fail:
 
 /* ARGSUSED */
 static dladm_status_t
-get_secondary_macs(dladm_handle_t handle, prop_desc_t *pdp,
-    datalink_id_t linkid, char **prop_val, uint_t *val_cnt,
-    datalink_media_t media, uint_t flags, uint_t *perm_flags)
-{
-	mac_secondary_addr_t	sa;
-	dladm_status_t		status;
-	int			i;
-
-	status = i_dladm_get_public_prop(handle, linkid, pdp->pd_name, flags,
-	    perm_flags, &sa, sizeof (sa));
-	if (status != DLADM_STATUS_OK)
-		return (status);
-
-	if (sa.ms_addrcnt > *val_cnt)
-		return (DLADM_STATUS_BADVALCNT);
-
-	for (i = 0; i < sa.ms_addrcnt; i++) {
-		if (dladm_aggr_macaddr2str(
-		    (const unsigned char *)&sa.ms_addrs[i], prop_val[i]) ==
-		    NULL) {
-			*val_cnt = i;
-			return (DLADM_STATUS_NOMEM);
-		}
-	}
-	*val_cnt = sa.ms_addrcnt;
-	return (DLADM_STATUS_OK);
-}
-
-/* ARGSUSED */
-static dladm_status_t
-check_secondary_macs(dladm_handle_t handle, prop_desc_t *pdp,
-    datalink_id_t linkid, char **prop_val, uint_t *val_cntp, uint_t flags,
-    val_desc_t **vdpp, datalink_media_t media)
-{
-	dladm_status_t	status;
-	uchar_t		*addr;
-	uint_t		len = 0;
-	int		i;
-	uint_t		val_cnt = *val_cntp;
-	val_desc_t	*vdp = *vdpp;
-
-	if (val_cnt >= MPT_MAXMACADDR)
-		return (DLADM_STATUS_BADVALCNT);
-
-	for (i = 0; i < val_cnt; i++) {
-		addr = _link_aton(prop_val[i], (int *)&len);
-		if (addr == NULL) {
-			if (len == (uint_t)-1)
-				status = DLADM_STATUS_MACADDRINVAL;
-			else
-				status = DLADM_STATUS_NOMEM;
-			goto fail;
-		}
-
-		vdp[i].vd_val = (uintptr_t)addr;
-	}
-	return (DLADM_STATUS_OK);
-
-fail:
-	for (i = 0; i < val_cnt; i++) {
-		free((void *)vdp[i].vd_val);
-		vdp[i].vd_val = NULL;
-	}
-	return (status);
-}
-
-/* ARGSUSED */
-static dladm_status_t
-set_secondary_macs(dladm_handle_t handle, prop_desc_t *pd, datalink_id_t linkid,
-    val_desc_t *vdp, uint_t val_cnt, uint_t flags, datalink_media_t media)
-{
-	dladm_status_t status;
-	dld_ioc_macprop_t *dip;
-	int i;
-	mac_secondary_addr_t msa;
-
-	dip = i_dladm_buf_alloc_by_name(0, linkid, "secondary-macs", 0,
-	    &status);
-	if (dip == NULL)
-		return (status);
-
-	if (vdp->vd_val == 0) {
-		val_cnt = (uint_t)-1;
-	} else {
-		for (i = 0; i < val_cnt; i++) {
-			bcopy((void *)vdp[i].vd_val, msa.ms_addrs[i],
-			    MAXMACADDRLEN);
-		}
-	}
-	msa.ms_addrcnt = val_cnt;
-	bcopy(&msa, dip->pr_val, dip->pr_valsize);
-
-	status = i_dladm_macprop(handle, dip, B_TRUE);
-
-	free(dip);
-	return (status);
-}
-
-/* ARGSUSED */
-static dladm_status_t
 get_autopush(dladm_handle_t handle, prop_desc_t *pdp, datalink_id_t linkid,
     char **prop_val, uint_t *val_cnt, datalink_media_t media,
     uint_t flags, uint_t *perm_flags)
@@ -3098,8 +2901,6 @@ check_autopush(dladm_handle_t handle, prop_desc_t *pdp, datalink_id_t linkid,
 	}
 	return (DLADM_STATUS_OK);
 }
-
-#define	WLDP_BUFSIZE (MAX_BUF_LEN - WIFI_BUF_OFFSET)
 
 /* ARGSUSED */
 static dladm_status_t
@@ -3239,7 +3040,7 @@ check_rate(dladm_handle_t handle, prop_desc_t *pdp, datalink_id_t linkid,
     datalink_media_t media)
 {
 	int		i;
-	uint_t		modval_cnt = MAX_SUPPORT_RATES;
+	uint_t		modval_cnt = sizeof (uint8_t);
 	char		*buf, **modval;
 	dladm_status_t	status;
 	uint_t 		perm_flags;
@@ -3250,15 +3051,15 @@ check_rate(dladm_handle_t handle, prop_desc_t *pdp, datalink_id_t linkid,
 		return (DLADM_STATUS_BADVALCNT);
 
 	buf = malloc((sizeof (char *) + DLADM_STRSIZE) *
-	    MAX_SUPPORT_RATES);
+	    sizeof (uint8_t));
 	if (buf == NULL) {
 		status = DLADM_STATUS_NOMEM;
 		goto done;
 	}
 
 	modval = (char **)(void *)buf;
-	for (i = 0; i < MAX_SUPPORT_RATES; i++) {
-		modval[i] = buf + sizeof (char *) * MAX_SUPPORT_RATES +
+	for (i = 0; i < sizeof (uint8_t); i++) {
+		modval[i] = buf + sizeof (char *) * sizeof (uint8_t) +
 		    i * DLADM_STRSIZE;
 	}
 
@@ -3296,17 +3097,17 @@ get_channel(dladm_handle_t handle, prop_desc_t *pdp,
     datalink_id_t linkid, char **prop_val, uint_t *val_cnt,
     datalink_media_t media, uint_t flags, uint_t *perm_flags)
 {
-	uint32_t	channel;
+	uint16_t	channel;
 	char		buf[WLDP_BUFSIZE];
 	dladm_status_t	status;
-	wl_phy_conf_t	wl_phy_conf;
+	wl_phy_conf_t	wl_phys_conf;
 
 	if ((status = get_phyconf(handle, linkid, buf, sizeof (buf)))
 	    != DLADM_STATUS_OK)
 		return (status);
 
-	(void) memcpy(&wl_phy_conf, buf, sizeof (wl_phy_conf));
-	if (!i_dladm_wlan_convert_chan(&wl_phy_conf, &channel))
+	(void) memcpy(&wl_phys_conf, buf, sizeof (wl_phys_conf));
+	if (!i_dladm_wlan_convert_chan(&wl_phys_conf, &channel))
 		return (DLADM_STATUS_NOTFOUND);
 
 	(void) snprintf(*prop_val, DLADM_STRSIZE, "%u", channel);
@@ -3664,6 +3465,7 @@ i_dladm_buf_alloc_by_id(size_t valsize, datalink_id_t linkid,
 	link_attr_t *p;
 
 	p = dladm_id2prop(propid);
+
 	valsize = MAX(p->pp_valsize, valsize);
 	return (i_dladm_buf_alloc_impl(valsize, linkid, p->pp_name, propid,
 	    flags, status));
@@ -3719,7 +3521,6 @@ set_public_prop(dladm_handle_t handle, prop_desc_t *pdp,
 
 	status = i_dladm_macprop(handle, dip, B_TRUE);
 
-done:
 	free(dip);
 	return (status);
 }
@@ -4275,7 +4076,7 @@ check_stp_prop(dladm_handle_t handle, struct prop_desc *pd,
     val_desc_t **vdpp, datalink_media_t media)
 {
 	char		*cp;
-	boolean_t	iscost;
+	boolean_t	iscost = B_FALSE;
 	uint_t		val_cnt = *val_cntp;
 	val_desc_t	*vdp = *vdpp;
 
@@ -4452,24 +4253,11 @@ dladm_status_t
 i_dladm_wlan_param(dladm_handle_t handle, datalink_id_t linkid, void *buf,
     mac_prop_id_t cmd, size_t len, boolean_t set)
 {
-	uint32_t		flags;
 	dladm_status_t		status;
-	uint32_t		media;
 	dld_ioc_macprop_t	*dip;
 	void			*dp;
 
-	if ((status = dladm_datalink_id2info(handle, linkid, &flags, NULL,
-	    &media, NULL, 0)) != DLADM_STATUS_OK) {
-		return (status);
-	}
-
-	if (media != DL_WIFI)
-		return (DLADM_STATUS_BADARG);
-
-	if (!(flags & DLADM_OPT_ACTIVE))
-		return (DLADM_STATUS_TEMPONLY);
-
-	if (len == (MAX_BUF_LEN - WIFI_BUF_OFFSET))
+	if (len == WLDP_BUFSIZE)
 		len = MAX_BUF_LEN - sizeof (dld_ioc_macprop_t) - 1;
 
 	dip = i_dladm_buf_alloc_by_id(len, linkid, cmd, 0, &status);
@@ -4554,7 +4342,7 @@ static dladm_status_t
 i_dladm_link_proplist_extract_one(dladm_handle_t handle,
     dladm_arg_list_t *proplist, const char *name, uint_t flags, void *arg)
 {
-	dladm_status_t		status;
+	dladm_status_t		status = DLADM_STATUS_OK;
 	dladm_arg_info_t	*aip = NULL;
 	int			i, j;
 
@@ -4716,13 +4504,11 @@ dladm_linkprop_is_set(dladm_handle_t handle, datalink_id_t linkid,
 
 	/*
 	 * valcnt is always set to 1 by get_pool(), hence we need to check
-	 * for a non-null string to see if it is set. For protection,
-	 * secondary-macs and allowed-ips, we can check either the *propval
-	 * or the valcnt.
+	 * for a non-null string to see if it is set. For protection and
+	 * allowed-ips, we can check either the *propval or the valcnt.
 	 */
 	if ((strcmp(prop_name, "pool") == 0 ||
 	    strcmp(prop_name, "protection") == 0 ||
-	    strcmp(prop_name, "secondary-macs") == 0 ||
 	    strcmp(prop_name, "allowed-ips") == 0) &&
 	    (strlen(*propvals) != 0)) {
 		*is_set = B_TRUE;

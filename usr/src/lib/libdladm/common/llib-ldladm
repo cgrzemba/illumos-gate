@@ -27,6 +27,7 @@
 
 #include <libdllink.h>
 #include <libdlaggr.h>
+#include <secobj.h>
 #include <libdlwlan.h>
 #include <libdlvnic.h>
 #include <libdlvlan.h>

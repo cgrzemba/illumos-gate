@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _EVENTS_H
@@ -48,8 +49,7 @@ typedef struct nwamd_object *nwamd_object_t;
 #define	NWAM_EVENT_TYPE_NCU_CHECK		NWAM_EVENT_MAX + 5
 #define	NWAM_EVENT_TYPE_TIMER			NWAM_EVENT_MAX + 6
 #define	NWAM_EVENT_TYPE_UPGRADE			NWAM_EVENT_MAX + 7
-#define	NWAM_EVENT_TYPE_PERIODIC_SCAN		NWAM_EVENT_MAX + 8
-#define	NWAM_EVENT_TYPE_QUEUE_QUIET		NWAM_EVENT_MAX + 9
+#define	NWAM_EVENT_TYPE_QUEUE_QUIET		NWAM_EVENT_MAX + 8
 
 #define	NEXT_FEW_SECONDS			5
 
@@ -84,6 +84,8 @@ extern void nwamd_routing_events_init(void);
 extern void nwamd_routing_events_fini(void);
 extern void nwamd_sysevent_events_init(void);
 extern void nwamd_sysevent_events_fini(void);
+extern void nwamd_wpa_s_events_init(void);
+extern void nwamd_wpa_s_events_fini(void);
 
 /* Event init/enqueueing */
 extern void nwamd_event_queue_init(void);
@@ -102,8 +104,8 @@ extern nwamd_event_t nwamd_event_init_link_action(const char *, nwam_action_t);
 extern nwamd_event_t nwamd_event_init_link_state(const char *, boolean_t);
 extern nwamd_event_t nwamd_event_init_if_state(const char *, uint32_t,
     uint32_t, struct sockaddr *, struct sockaddr *);
-extern nwamd_event_t nwamd_event_init_wlan(const char *, int32_t, boolean_t,
-    nwam_wlan_t *, uint_t);
+extern nwamd_event_t nwamd_event_init_wlan(const char *, int32_t, nwam_wlan_t *,
+    uint_t);
 extern nwamd_event_t nwamd_event_init_ncu_check(void);
 extern nwamd_event_t nwamd_event_init_init(void);
 extern nwamd_event_t nwamd_event_init_shutdown(void);

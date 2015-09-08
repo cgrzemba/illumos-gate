@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <atomic.h>
@@ -56,6 +57,8 @@ struct nwamd_event_source {
 	nwamd_routing_events_init, nwamd_routing_events_fini },
 	{ "sysevent_events",
 	nwamd_sysevent_events_init, nwamd_sysevent_events_fini },
+	{ "wpa_s_events",
+	nwamd_wpa_s_events_init, nwamd_wpa_s_events_fini },
 };
 
 /* Counter for event ids */
@@ -89,8 +92,6 @@ nwamd_event_name(int event_type)
 		return ("TIMER");
 	case NWAM_EVENT_TYPE_UPGRADE:
 		return ("UPGRADE");
-	case NWAM_EVENT_TYPE_PERIODIC_SCAN:
-		return ("PERIODIC_SCAN");
 	case NWAM_EVENT_TYPE_QUEUE_QUIET:
 		return ("QUEUE_QUIET");
 	default:
@@ -412,21 +413,20 @@ nwamd_event_init_if_state(const char *linkname, uint32_t flags,
 }
 
 nwamd_event_t
-nwamd_event_init_wlan(const char *name, int32_t type, boolean_t connected,
-    nwam_wlan_t *wlans, uint_t num_wlans)
+nwamd_event_init_wlan(const char *name, int32_t type, nwam_wlan_t *wlan,
+    uint_t scanned_wl)
 {
-	size_t size = 0;
 	char *object_name;
 	nwamd_event_t event;
 	nwam_error_t err;
 
 	switch (type) {
 	case NWAM_EVENT_TYPE_WLAN_SCAN_REPORT:
-	case NWAM_EVENT_TYPE_WLAN_NEED_CHOICE:
-		size = sizeof (nwam_wlan_t) * (num_wlans - 1);
-		break;
-	case NWAM_EVENT_TYPE_WLAN_NEED_KEY:
+	case NWAM_EVENT_TYPE_WLAN_WRONG_KEY:
+	case NWAM_EVENT_TYPE_WLAN_ASSOCIATION_REPORT:
 	case NWAM_EVENT_TYPE_WLAN_CONNECTION_REPORT:
+	case NWAM_EVENT_TYPE_WLAN_DISASSOCIATION_REPORT:
+		/* one nwam_wlan_t is enough */
 		break;
 	default:
 		nlog(LOG_ERR, "nwamd_event_init_wlan: unexpected "
@@ -441,19 +441,19 @@ nwamd_event_init_wlan(const char *name, int32_t type, boolean_t connected,
 		return (NULL);
 	}
 
-	event = nwamd_event_init(type, NWAM_OBJECT_TYPE_NCU, size, object_name);
+	event = nwamd_event_init(type, NWAM_OBJECT_TYPE_NCU, 0, object_name);
 	free(object_name);
 	if (event == NULL)
 		return (NULL);
 
 	(void) strlcpy(event->event_msg->nwe_data.nwe_wlan_info.nwe_name, name,
 	    sizeof (event->event_msg->nwe_data.nwe_wlan_info.nwe_name));
-	event->event_msg->nwe_data.nwe_wlan_info.nwe_connected = connected;
-	event->event_msg->nwe_data.nwe_wlan_info.nwe_num_wlans = num_wlans;
+	event->event_msg->nwe_data.nwe_wlan_info.nwe_scanres_num = scanned_wl;
 
 	/* copy the wlans */
-	(void) memcpy(event->event_msg->nwe_data.nwe_wlan_info.nwe_wlans, wlans,
-	    num_wlans * sizeof (nwam_wlan_t));
+	if (wlan != NULL)
+		(void) memcpy(&event->event_msg->nwe_data.nwe_wlan_info.
+		    nwe_wlan, wlan, sizeof (nwam_wlan_t));
 
 	return (event);
 }
@@ -706,14 +706,10 @@ nwamd_event_run_method(nwamd_event_t event)
 		return;
 	}
 
-	for (i = 0;
-	    event_methods[i].event_type != NWAM_EVENT_TYPE_NOOP;
-	    i++) {
-		if (event_methods[i].event_type ==
-		    event->event_type &&
+	for (i = 0; event_methods[i].event_type != NWAM_EVENT_TYPE_NOOP; i++) {
+		if (event_methods[i].event_type == event->event_type &&
 		    event_methods[i].event_method != NULL) {
-			nlog(LOG_DEBUG,
-			    "(%p) %s: running method for event %s",
+			nlog(LOG_DEBUG, "(%p) %s: running method for event %s",
 			    (void *)event, event->event_object,
 			    nwamd_event_name(event->event_type));
 			/* run method */

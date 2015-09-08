@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -39,7 +40,6 @@
 #include <strings.h>
 
 #include <libnwam.h>
-#include "known_wlans.h"
 #include "llp.h"
 #include "ncu.h"
 #include "util.h"
@@ -487,9 +487,6 @@ nwamd_handle_upgrade(nwamd_event_t event)
 		    NWAM_MAX_NAME_LEN);
 		(void) pthread_mutex_unlock(&active_ncp_mutex);
 	}
-
-	/* upgrade /etc/nwam/known_wifi_nets */
-	upgrade_known_wifi_nets_config();
 
 	/*
 	 * SMF property nwamd/dhcp_wait_time in Phase 0/0.5 has been

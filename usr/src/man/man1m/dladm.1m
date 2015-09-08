@@ -85,9 +85,14 @@ dladm \- administer data links
 .LP
 .nf
 \fBdladm scan-wifi\fR [[\fB-p\fR] \fB-o\fR \fIfield\fR[,...]] [\fIwifi-link\fR]
-\fBdladm connect-wifi\fR [\fB-e\fR \fIessid\fR] [\fB-i\fR \fIbssid\fR] [\fB-k\fR \fIkey\fR,...]
-     [\fB-s\fR none | wep | wpa ] [\fB-a\fR open | shared] [\fB-b\fR bss | ibss] [\fB-c\fR]
-     [\fB-m\fR a | b | g] [\fB-T\fR \fItime\fR] [\fIwifi-link\fR]
+\fBdladm connect-wifi\fR [\fB-e\fR \fIessid\fR] [\fB-b\fR \fIbssid\fR]
+     [\fB-i\fR ESS | IBSS] [\fB-k\fR \fIsecobj_name\fR,...]
+     [\fB-U\fR \fIusername\fR] [\fB-N\fR \fIanon_identity\fR]
+     [\fB-A\fR \fICA_Cert_filename\fR] [\fB-D\fR \fICA_path\fR]
+     [\fB-C\fR \fIClient_Cert_filename\fR][\fB-K\fR \fIPrivate_Key_filename\fR]
+     [\fB-P\fR pap|chap|mschap|mschapv2|md5|tls] [\fB-I\fR md5|mschapv2]
+     [\fB-E\fR]
+     [\fIwifi-link\fR]
 \fBdladm disconnect-wifi\fR [\fB-a\fR] [\fIwifi-link\fR]
 \fBdladm show-wifi\fR [[\fB-p\fR] \fB-o\fR \fIfield\fR[,...]] [\fIwifi-link\fR]
 .fi
@@ -2752,23 +2757,22 @@ required with \fB-p\fR. See "Parseable Output Format", below.
 .ne 2
 .na
 \fB\fBdladm connect-wifi\fR [\fB-e\fR \fIessid\fR] [\fB-i\fR \fIbssid\fR]
-[\fB-k\fR \fIkey\fR,...] [\fB-s\fR \fBnone\fR | \fBwep\fR | \fBwpa\fR]
-[\fB-a\fR \fBopen\fR|\fBshared\fR] [\fB-b\fR \fBbss\fR|\fBibss\fR] [\fB-c\fR]
-[\fB-m\fR \fBa\fR|\fBb\fR|\fBg\fR] [\fB-T\fR \fItime\fR] [\fIwifi-link\fR]\fR
+[\fB-i\fR \fIESS\fR | \fIIBSS\fR] [\fB-k\fR \fIsecobj_name\fR,...]
+[\fB-U\fR \fIidentity\fR] [\fB-N\fR \fIanon_identity\fR]
+[\fB-A\fR \fICA_Cert_filename\fR] [\fB-D\fR \fICA_path\fR] [\fB-C\fR \fIClient_Cert_filename\fR]
+[\fB-K\fR \fIPrivate_Key_filename\fR] [\fB-P\fR pap|chap|mschap|mschapv2|md5|tls]
+[\fB-I\fR md5|mschapv2] [\fB-E\fR] [\fIwifi-link\fR]\fR
 .ad
 .sp .6
 .RS 4n
-Connects to a \fBWiFi\fR network. This consists of four steps: \fIdiscovery\fR,
-\fIfiltration\fR, \fIprioritization\fR, and \fIassociation\fR. However, to
-enable connections to non-broadcast \fBWiFi\fR networks and to improve
-performance, if a \fBBSSID\fR or \fBESSID\fR is specified using the \fB-e\fR or
-\fB-i\fR options, then the first three steps are skipped and \fBconnect-wifi\fR
-immediately attempts to associate with a \fBBSSID\fR or \fBESSID\fR that
-matches the rest of the provided parameters. If this association fails, but
-there is a possibility that other networks matching the specified criteria
-exist, then the traditional discovery process begins as specified below.
+Connects to a \fBWiFi\fR network. By default, dladm performs AP scanning and then
+uses the scan results to select a suitable AP. Dladm associates with APs using
+security policy and \fIESSID\fR (and \fIBSSID\fR if specified);
+The \fIBSSID\fR can be used to connect with AP not broadcasting their SSIDs.
+If the driver does not report successful association after 6 seconds, dladm
+reports an error.
 .sp
-The discovery step finds all available \fBWiFi\fR networks on the specified
+AP scan finds all available \fBWiFi\fR networks on the specified
 WiFi link, which must not yet be connected. For administrative convenience, if
 there is only one \fBWiFi\fR link on the system, \fIwifi-link\fR can be
 omitted.
@@ -2782,91 +2786,40 @@ value of the following options:
 .ad
 .sp .6
 .RS 4n
-Networks that do not have the same \fIessid\fR are filtered out.
+SSID of the WiFi network. Network name ASCII string.
+#    Must be specified if a secobj name is provided.
 .RE
 
 .sp
 .ne 2
 .na
-\fB\fB-b\fR \fBbss\fR|\fBibss\fR, \fB--bsstype\fR=\fBbss\fR|\fBibss\fR\fR
+\fB\fB-b\fR \fIbssid\fR, \fB--bssid\fR=\fIbssid\fR\fR
 .ad
 .sp .6
 .RS 4n
-Networks that do not have the same \fBbsstype\fR are filtered out.
+If specified, directs the device to only associate with the given access point.
+This capability is highly driver dependent and not supported by all devices.
+If the AP does not broadcast its SSID, and the user does not want dladm to
+sequentially try to join APs of scan results, the BSSID should be specified.
+Alternativeli once associated, if the beacon's SSID matches the one provided
+by the User, dladm authentication.
+Note: BSSID property does not control the BSSID used when creating an Ad-Hoc
+network. The original device BSSID is used in that case.
 .RE
 
 .sp
 .ne 2
 .na
-\fB\fB-m\fR \fBa\fR|\fBb\fR|\fBg\fR, \fB--mode\fR=\fBa\fR|\fBb\fR|\fBg\fR\fR
+\fB\fB-b\fR \fBESS\fR|\fBIBSS\fR, \fB--bsstype\fR=\fBESS\fR|\fBIBSS\fR\fR
 .ad
 .sp .6
 .RS 4n
-Networks not appropriate for the specified 802.11 mode are filtered out.
-.RE
-
-.sp
-.ne 2
-.na
-\fB\fB-k\fR \fIkey,...\fR, \fB--key\fR=\fIkey, ...\fR\fR
-.ad
-.sp .6
-.RS 4n
-Use the specified \fBsecobj\fR named by the key to connect to the network.
-Networks not appropriate for the specified keys are filtered out.
-.RE
-
-.sp
-.ne 2
-.na
-\fB\fB-s\fR \fBnone\fR|\fBwep\fR|\fBwpa\fR,
-\fB--sec\fR=\fBnone\fR|\fBwep\fR|\fBwpa\fR\fR
-.ad
-.sp .6
-.RS 4n
-Networks not appropriate for the specified security mode are filtered out.
-.RE
-
-Next, the remaining networks are prioritized, first by signal strength, and
-then by maximum speed. Finally, an attempt is made to associate with each
-network in the list, in order, until one succeeds or no networks remain.
-.sp
-In addition to the options described above, the following options also control
-the behavior of \fBconnect-wifi\fR:
-.sp
-.ne 2
-.na
-\fB\fB-a\fR \fBopen\fR|\fBshared\fR, \fB--auth\fR=\fBopen\fR|\fBshared\fR\fR
-.ad
-.sp .6
-.RS 4n
-Connect using the specified authentication mode. By default, \fBopen\fR and
-\fBshared\fR are tried in order.
-.RE
-
-.sp
-.ne 2
-.na
-\fB\fB-c\fR, \fB--create-ibss\fR\fR
-.ad
-.sp .6
-.RS 4n
-Used with \fB-b ibss\fR to create a new ad-hoc network if one matching the
-specified \fBESSID\fR cannot be found. If no \fBESSID\fR is specified, then
-\fB-c -b ibss\fR always triggers the creation of a new ad-hoc network.
-.RE
-
-.sp
-.ne 2
-.na
-\fB\fB-T\fR \fItime\fR, \fB--timeout\fR=\fItime\fR\fR
-.ad
-.sp .6
-.RS 4n
-Specifies the number of seconds to wait for association to succeed. If
-\fItime\fR is \fBforever\fR, then the associate will wait indefinitely. The
-current default is ten seconds, but this might change in the future. Timeouts
-shorter than the default might not succeed reliably.
+WiFi network mode; one of 'infrastructure' (ESS) or 'adhoc' (IBSS).
+If blank, infrastructure is assumed. If 'adhoc' is used with \fB-e essid\fR,
+dladm create a new ad-hoc network if one matching the specified \fBESSID\fR
+cannot be found. If no \fBESSID\fR is specified, then \fB-i IBSS\fR always
+triggers the creation of a new ad-hoc network with the following template:
+Illumos-(random-8ciphers number)
 .RE
 
 .sp
@@ -2876,18 +2829,138 @@ shorter than the default might not succeed reliably.
 .ad
 .sp .6
 .RS 4n
-In addition to the filtering previously described, the specified keys will be
-used to secure the association. The security mode to use will be based on the
-key class; if a security mode was explicitly specified, it must be compatible
-with the key class. All keys must be of the same class.
+Use the specified \fBsecobj\fR to connect to the network.
+In addition to the filtering previously described, the specified secobjs will be
+used for Wifi link layer security. The secobj class determines the security policy
+of the target AP. Networks not matching that security policy are filtered out.
 .sp
-For security modes that support multiple key slots, the slot to place the key
-will be specified by a colon followed by an index. Therefore, \fB-k mykey:3\fR
-places \fBmykey\fR in slot 3. By default, slot 1 is assumed. For security modes
-that support multiple keys, a comma-separated list can be specified, with the
-first key being the active key.
+For WEP security mode, which support multiple key slots, the slot to place the
+key will be specified by a colon followed by an index. Therefore, \fB-k mykey:3\fR
+places \fBmykey\fR in slot 3. By default, slot 1 is assumed.
+.sp
+Some EAP authentication methods require use of certificates.
+EAP-TLS uses both server side and client certificates  whereas  EAP-PEAP
+and EAP-TTLS only require the server side certificate. When client certificate
+is used, a matching private key file has to also be included in configuration.
+If the private key file uses a passphrase, a secure object with the passphrase
+value must be created and passed as a parameter. If PKCS#11 keystores are used,
+the secobj containing the file passphrase can be temporary and not stored
+permanently.
 .RE
 
+.sp
+.ne 2
+.na
+\fB\fB-U\fR \fIusername\fR \fB--identity\fR=\fIusername\fR\fR
+.ad
+.sp .6
+.RS 4n
+Identity string for EAP. Identity string for EAP authentication methods.
+Often the user's login name or its email adress.
+.RE
+
+.sp
+.ne 2
+.na
+\fB-N\fR \fIanon_identity\fR
+.ad
+.sp .6
+.RS 4n
+Anonymous identity string for EAP. To be used as the unencrypted identity with
+EAP types that support different tunnelled identity (EAP-PEAP / EAP-TTLS)
+.RE
+
+.sp
+.ne 2
+.na
+\fB-A\fR \fICA_Cert_filename\fR
+.ad
+.sp .6
+.RS 4n
+Filename to CA certificate file (PEM/DER format are supporte).
+Relative path can be used. This file can have one or more trusted CA certificates.
+If CA_Cert and CA_Path are not included, server certificate could not be verified.
+This is insecure and a trusted CA certificate should always be configured when using
+EAP-TLS/TTLS/PEAP.
+.RE
+
+.sp
+.ne 2
+.na
+\fB-D\fR \fICA_path\fR
+.ad
+.sp .6
+.RS 4n
+Directory path for CA certificate files (PEM). This path may contain multiple CA
+certificates in OpenSSL format. If not specified this value is automatically set
+to system trusted CA list which is often installed into /etc/certs/CA.
+If configured, these certificates are added to the list of trusted CAs.
+CA_Cert may also be included in that case, but it is not required.
+.RE
+
+.sp
+.ne 2
+.na
+\fB-C\fR \fIClient_Cert_filename\fR
+.ad
+.sp .6
+.RS 4n
+File path to client certificate file (PEM/DER supported formats)
+Two are currently supported ways of retrieved Certificate data: pkc11 and path.
+When using the -E flag the Client certificate file is imported into a persistent
+PKCS#11 keystore. When using the standard file based mode, this property should
+be set to the relative or absolute path of the certificate.
+In this case the file should not be removed or moved to another directory
+.RE
+
+.sp
+.ne 2
+.na
+\fB-K\fR \fIPrivate_Key_filename\fR
+.ad
+.sp .6
+.RS 4n
+File path to client private key file (PEM/DER)
+When PKCS#12 file (.p12) is used, client_cert should not be used.
+Both the private key and certificate will be read fromthe PKCS#12 file in this case.
+When using the -E flag the Private Key is imported into a persistent
+PKCS#11 keystore. When using the standard file based mode, this property should
+be set to the relative or absolute path of the certificate.
+In this case the file should not be removed or moved to another directory
+.RE
+
+.sp
+.ne 2
+.na
+\fB-P\fR pap|chap|mschap|mschapv2|md5|tls
+.ad
+.sp .6
+.RS 4n
+Specifies the allowed 'phase 2' inner non-EAP authentication methods when an EAP
+method that uses an inner TLS tunnel is specified in the 'eap' property.
+.RE
+
+.sp
+.ne 2
+.na
+\fB-I\fR md5|mschapv2
+.ad
+.sp .6
+.RS 4n
+Specifies the allowed 'phase 2' inner EAP-based authentication methods when an
+EAP method that uses an inner TLS tunnel is specified in the 'eap' property.
+.RE
+
+.sp
+.ne 2
+.na
+\fB-E\fR
+.ad
+.sp .6
+.RS 4n
+Uses OpenSSL Engine backend to retrieve imported objects from PKCS#11 keystore.
+The key available through the engine must be the private key matching the client
+certificate configured above.
 .RE
 
 .sp
@@ -3429,18 +3502,26 @@ properties following subcommand descriptions.
 .sp .6
 .RS 4n
 Create a secure object named \fIsecobj\fR in the specified \fIclass\fR to be
-later used as a WEP or WPA key in connecting to an encrypted network. The value
+later used as key/password in connecting to an encrypted network. The value
 of the secure object can either be provided interactively or read from a file.
 The sequence of interactive prompts and the file format depends on the class of
 the secure object.
 .sp
-Currently, the classes \fBwep\fR and \fBwpa\fR are supported. The \fBWEP\fR
+Currently, the classes \fBwep\fR, \fBwpa\fR, \fBeap-tls\fR,
+\fBeap-ttls\fR and \fBpeap\fR are supported. The \fBWEP\fR
 (Wired Equivalent Privacy) key can be either 5 or 13 bytes long. It can be
 provided either as an \fBASCII\fR or hexadecimal string -- thus, \fB12345\fR
 and \fB0x3132333435\fR are equivalent 5-byte keys (the \fB0x\fR prefix can be
 omitted). A file containing a \fBWEP\fR key must consist of a single line using
 either \fBWEP\fR key format. The WPA (Wi-Fi Protected Access) key must be
 provided as an ASCII string with a length between 8 and 63 bytes.
+\fBEAP-TLS\fR, \fBEAP-TTLS\fR and \fBPEAP\fR are the allowed EAP method to be
+used when authenticating to the network with 802.1x. Each method requires
+different configuration using the properties of this setting;
+\fBEAP-TTLS\fR and \fBPEAP\fR require an ASCII user password.
+\fBEAP-TLS\fR requires an ASCII password for the private key file.
+Refer to connect-wifi subcommand documentation for more details on
+the allowed combinations.
 .sp
 This subcommand is only usable by users or roles that belong to the "Network
 Link Security" \fBRBAC\fR profile.

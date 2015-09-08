@@ -21,12 +21,14 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <arpa/inet.h>
 #include <assert.h>
 #include <fcntl.h>
 #include <libdlpi.h>
+#include <libdlwlan.h>
 #include <libnwam.h>
 #include <net/if.h>
 #include <pthread.h>
@@ -121,7 +123,13 @@ nwamd_dlpi_add_link(nwamd_object_t obj)
 		return;
 	}
 
-	nwamd_set_unset_link_properties(ncu, B_TRUE);
+	/* Wifi links do not support setting/unsetting these properties */
+	if (dladm_wlan_validate(dld_handle, ncu->ncu_link.nwamd_link_id,
+	    NULL, NULL) == DLADM_STATUS_OK) {
+		nlog(LOG_DEBUG, "nwamd_dlpi_add_link(%s): skipping "
+		    "wifi link properties initialization", ncu->ncu_name);
+	} else
+		nwamd_set_unset_link_properties(ncu, B_TRUE);
 
 	rc = dlpi_enabnotify(link->nwamd_link_dhp,
 	    DL_NOTE_LINK_UP | DL_NOTE_LINK_DOWN, nwamd_dlpi_notify,
@@ -161,8 +169,16 @@ nwamd_dlpi_delete_link(nwamd_object_t obj)
 		    ncu->ncu_link.nwamd_link_dlpi_thread);
 		(void) pthread_join(ncu->ncu_link.nwamd_link_dlpi_thread, NULL);
 		ncu->ncu_link.nwamd_link_dlpi_thread = 0;
-		/* Unset properties before closing */
-		nwamd_set_unset_link_properties(ncu, B_FALSE);
+
+		/* Unset properties before closing. Wifi links do not support
+		 * setting/unsetting these properties */
+		if (dladm_wlan_validate(dld_handle, ncu->ncu_link.nwamd_link_id,
+		    NULL, NULL) == DLADM_STATUS_OK) {
+			nlog(LOG_DEBUG, "nwamd_dlpi_delete_link(%s): skipping "
+			    "wifi link properties de-initialization",
+			    ncu->ncu_name);
+		} else
+			nwamd_set_unset_link_properties(ncu, B_FALSE);
 	}
 
 	dlpi_close(ncu->ncu_link.nwamd_link_dhp);

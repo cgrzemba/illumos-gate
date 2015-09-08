@@ -35,7 +35,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
+#pragma ident   "%Z%%M% %I%     %E% SMI"
 
 /*
  * IEEE 802.11 NULL crypto support.
@@ -95,7 +95,7 @@ none_encap(struct ieee80211_key *k, mblk_t *mp, uint8_t keyid)
 	 * happen, at least, when changing keys.
 	 */
 	ieee80211_dbg(IEEE80211_MSG_CRYPTO, "none_encap: "
-		"key id %u is not set (encap)\n", keyid >> 6);
+	    "key id %u is not set (encap)\n", keyid >> 6);
 	return (0);
 }
 
@@ -111,8 +111,8 @@ none_decap(struct ieee80211_key *k, mblk_t *mp, int hdrlen)
 	 * happen, at least, when changing keys.
 	 */
 	ieee80211_dbg(IEEE80211_MSG_CRYPTO, "none_decap"
-		"key id %u is not set (decap)\n",
-		ivp[IEEE80211_WEP_IVLEN] >> 6);
+	    "key id %u is not set (decap)\n",
+	    ivp[IEEE80211_WEP_IVLEN] >> 6);
 	return (0);
 }
 

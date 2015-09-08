@@ -22,16 +22,13 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _KNOWN_WLANS_H
 #define	_KNOWN_WLANS_H
 
 #include <libnwam.h>
-#include <syslog.h>
 
-void upgrade_known_wifi_nets_config(void);
-nwam_error_t known_wlan_get_keyname(const char *, char *);
-nwam_error_t known_wlan_get_keyslot(const char *, uint_t *);
-
+int find_matching_wlan_cb(nwam_known_wlan_handle_t, void *);
 #endif /* _KNOWN_WLANS_H */

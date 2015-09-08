@@ -220,14 +220,6 @@ extern "C" {
 #define	IEEE80211_FH_CHANPAT(chan)	\
 	((chan) % IEEE80211_FH_CHANMOD)
 
-#define	IEEE80211_NODE_AUTH	0x0001		/* authorized for data */
-#define	IEEE80211_NODE_QOS	0x0002		/* QoS enabled */
-#define	IEEE80211_NODE_ERP	0x0004		/* ERP enabled */
-#define	IEEE80211_NODE_PWR_MGT	0x0010		/* power save mode enabled */
-#define	IEEE80211_NODE_AREF	0x0020		/* authentication ref held */
-
-#define	IEEE80211_MAXRSSI	127
-
 /* Debug Flags */
 #define	IEEE80211_MSG_BRUSSELS  0x80000000	/* BRUSSELS */
 #define	IEEE80211_MSG_DEBUG	0x40000000	/* IFF_DEBUG equivalent */
@@ -401,7 +393,6 @@ extern const char *ieee80211_phymode_name[];
 void ieee80211_err(const int8_t *, ...);
 void ieee80211_dbg(uint32_t, const int8_t *, ...);
 
-void ieee80211_notify(ieee80211com_t *, wpa_event_type);
 void ieee80211_mac_update(ieee80211com_t *);
 
 uint64_t ieee80211_read_6(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t);
@@ -453,8 +444,15 @@ uint8_t ieee80211_crypto_getciphertype(ieee80211com_t *);
 
 /* generic */
 mblk_t *ieee80211_getmgtframe(uint8_t **, int);
+
+/* wpa_supplicant notification methods */
 void ieee80211_notify_node_join(ieee80211com_t *, ieee80211_node_t *);
 void ieee80211_notify_node_leave(ieee80211com_t *, ieee80211_node_t *);
+void ieee80211_notify_scan_res(ieee80211com_t *);
+void ieee80211_notify_rejected(ieee80211com_t *, ieee80211_node_t *in,
+    uint16_t);
+void ieee80211_notify_timedout(ieee80211com_t *, ieee80211_node_t *in);
+void ieee80211_notify_detach(ieee80211com_t *);
 
 /* WME */
 void	ieee80211_wme_initparams(struct ieee80211com *);

@@ -21,15 +21,19 @@
 
 #
 # Copyright (c) 1990, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2014 Garrett D'Amore <garrett@damore.org>
 #
 
 SYNCPROG=	syncinit syncloop syncstat
+# DHCPPROG=	dhcpconfig dhtadm pntadm
+
+# EXPORT DELETE START
+XMODPROG=	wanbootutil
+# EXPORT DELETE END
 
 PROG=		6to4relay arp if_mpadm \
 		in.comsat in.fingerd in.rarpd in.rexecd in.rlogind \
 		in.rshd in.rwhod in.telnetd in.tftpd ipaddrsel \
-		ndd $(SYNCPROG) wanbootutil
+		ndd $(SYNCPROG) $(DHCPPROG) $(XMODPROG)
 
 MANIFEST=	rarp.xml telnet.xml comsat.xml finger.xml \
 		login.xml shell.xml rexec.xml socket-filter-kssl.xml
@@ -61,14 +65,14 @@ K5RSHDOBJS=	in.rshd.o
 K5TELNETOBJS=	in.telnetd.o
 SRCS=		$(PROGSRCS) $(OTHERSRC)
 
-SUBDIRS=	bootconfchk ifconfig ilbadm in.rdisc in.routed \
+SUBDIRS=	bootconfchk htable ifconfig ilbadm in.ftpd in.rdisc in.routed \
 		in.talkd inetadm inetconv ipadm ipmpstat ipqosconf ipsecutils \
 		kssl/kssladm kssl/ksslcfg nwamadm nwamcfg ping routeadm \
-		snoop sppptun traceroute wificonfig
+		snoop sppptun traceroute
 
-MSGSUBDIRS=	bootconfchk ifconfig ilbadm in.routed in.talkd \
+MSGSUBDIRS=	bootconfchk htable ifconfig ilbadm in.ftpd in.routed in.talkd \
 		inetadm inetconv ipadm ipmpstat ipqosconf ipsecutils \
-		kssl/ksslcfg nwamadm nwamcfg routeadm sppptun snoop wificonfig
+		kssl/ksslcfg nwamadm nwamcfg routeadm sppptun snoop
 
 # As programs get lint-clean, add them here and to the 'lint' target.
 # Eventually this hack should go away, and all in PROG should be
@@ -82,8 +86,7 @@ LINTCLEAN=	6to4relay arp in.rlogind in.rshd in.telnetd in.tftpd \
 # for the lint rule.
 LINTSUBDIRS=	bootconfchk ilbadm in.rdisc in.routed in.talkd inetadm \
 		inetconv ipmpstat ipqosconf ipsecutils kssl/kssladm \
-		kssl/ksslcfg nwamadm nwamcfg ping routeadm sppptun traceroute \
-		wificonfig
+		kssl/ksslcfg nwamadm nwamcfg ping routeadm sppptun traceroute
 # And as programs are verified not to attempt to write into constants,
 # -xstrconst should be used to ensure they stay that way.
 CONSTCLEAN=
@@ -124,8 +127,7 @@ lint:=		TARGET= lint
 _msg:=		TARGET= _msg
 
 CLOBBERFILES +=	$(ROOTFS_PROG) $(PROG)
-CLEANFILES += $(COMMONOBJS) $(K5RLOGINOBJS) $(K5RSHDOBJS) $(TFTPDOBJS) \
-		$(K5TELNETOBJS)
+CLEANFILES += $(COMMONOBJS) $(K5RLOGINOBJS) $(K5RSHDOBJS) $(TFTPDOBJS)
 
 CPPFLAGS +=	-DSYSV -DBSD_COMP -I$(CMDINETCOMMONDIR) -I
 
@@ -160,7 +162,7 @@ if_mpadm		:=	LDLIBS += -linetutil -lipmp
 if_mpadm.po		:=	XGETFLAGS += -a
 route			:=	CPPFLAGS += -DNDEBUG
 ndd			:=	LDLIBS += -ldladm -lipadm
-in.comsat		:=	LDFLAGS += $(MAPFILE.NGB:%=-M%)
+gettable in.comsat	:=	LDFLAGS += $(MAPFILE.NGB:%=-M%)
 
 .KEEP_STATE:
 
@@ -230,13 +232,11 @@ FRC:
 
 check:	$(CHKMANIFEST)
 
-clean: $(SUBDIRS) clean_local
-clean_local:
-	$(RM) $(CLEANFILES)
+clean:	$(SUBDIRS)
+	-$(RM) $(CLEANFILES)
 
-clobber: $(SUBDIRS) clobber_local
-clobber_local: clean_local
-	$(RM) $(CLOBBERFILES)
+clobber: $(SUBDIRS)
+	-$(RM) $(CLEANFILES) $(CLOBBERFILES)
 
 lint: $(LINTSUBDIRS)
 	$(LINT.c) 6to4relay.c $(LDLIBS) -lsocket -ldladm
@@ -271,3 +271,13 @@ lint: $(LINTSUBDIRS)
 	    -lsocket -lnsl
 	$(LINT.c) in.tftpd.c ../usr.bin/tftp/tftpsubs.c $(LDLIBS) \
 	    -lsocket -lnsl
+
+# EXPORT DELETE START
+EXPORT_SRC:
+	$(RM) Makefile+
+	sed -e "/^# EXPORT DELETE START/,/^# EXPORT DELETE END/d" \
+		< Makefile > Makefile+
+	$(RM) Makefile
+	$(MV) Makefile+ Makefile
+	$(CHMOD) 444 Makefile
+# EXPORT DELETE END

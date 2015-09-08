@@ -1,0 +1,16 @@
+--- usr/src/cmd/cmd-inet/lib/nwamd/Makefile	2012-09-13 05:51:54.285952318 +0200
++++ usr/src/cmd/cmd-inet/lib/nwamd/Makefile	2012-09-13 05:51:54.288801433 +0200
+@@ -51,10 +51,12 @@
+ 
+ ROOTCMDDIR=	$(ROOTFS_LIBDIR)/inet
+ 
+-LDLIBS +=	-ldhcpagent -ldhcputil -ldladm -ldlpi -lgen \
++LDLIBS +=	-ldhcpagent -ldhcputil -ldladm -ldlpi \
+ 		-linetutil -lipadm -lkstat -lnsl -lnvpair -lnwam \
+ 		-lsecdb -lscf -lsocket -lsysevent -lumem -luutil
+ 
++#$(OBJS)/wpa_s_events.o := LDLIBS += $(ELOOP)
++
+ #
+ # Instrument with CTF data to ease debugging.
+ #

@@ -21,15 +21,13 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <errno.h>
 #include <inet/ip.h>
-#include <libdladm.h>
-#include <libdllink.h>
-#include <libdlwlan.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,12 +77,6 @@ static boolean_t test_condition_sys_domain(nwam_condition_t condition,
 static boolean_t test_condition_adv_domain(nwam_condition_t condition,
     const char *domainname);
 
-/*  WLAN conditions */
-static boolean_t test_condition_wireless_essid(nwam_condition_t condition,
-    const char *essid);
-static boolean_t test_condition_wireless_bssid(nwam_condition_t condition,
-    const char *essid);
-
 struct nwamd_condition_map {
 	nwam_condition_object_type_t object_type;
 	boolean_t (*condition_func)(nwam_condition_t, const char *);
@@ -96,14 +88,12 @@ struct nwamd_condition_map {
 	{ NWAM_CONDITION_OBJECT_TYPE_LOC, test_condition_loc },
 	{ NWAM_CONDITION_OBJECT_TYPE_IP_ADDRESS, test_condition_ip_address },
 	{ NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN, test_condition_sys_domain },
-	{ NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN, test_condition_adv_domain },
-	{ NWAM_CONDITION_OBJECT_TYPE_ESSID, test_condition_wireless_essid },
-	{ NWAM_CONDITION_OBJECT_TYPE_BSSID, test_condition_wireless_bssid }
+	{ NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN, test_condition_adv_domain }
 };
 
 /*
  * This function takes which kind of conditions (is or is not) we are testing
- * the object against and an object and applies the conditon to the object.
+ * the object against and an object and applies the condition to the object.
  */
 static boolean_t
 test_condition_object_state(nwam_condition_t condition,
@@ -549,144 +539,8 @@ test_condition_ip_address(nwam_condition_t condition,
 
 struct nwamd_wlan_condition_walk_arg {
 	nwam_condition_t condition;
-	const char *exp_essid;
-	const char *exp_bssid;
-	uint_t num_connected;
 	boolean_t res;
 };
-
-static int
-check_wlan(const char *linkname, void *arg)
-{
-	struct nwamd_wlan_condition_walk_arg *wa = arg;
-	datalink_id_t linkid;
-	dladm_wlan_linkattr_t attr;
-	dladm_status_t status;
-	char cur_essid[DLADM_STRSIZE];
-	char cur_bssid[DLADM_STRSIZE];
-	char errmsg[DLADM_STRSIZE];
-
-	if ((status = dladm_name2info(dld_handle, linkname, &linkid, NULL, NULL,
-	    NULL)) != DLADM_STATUS_OK) {
-		nlog(LOG_DEBUG, "check_wlan: dladm_name2info() for %s "
-		    "failed: %s", linkname,
-		    dladm_status2str(status, errmsg));
-		return (DLADM_WALK_CONTINUE);
-	}
-
-	status = dladm_wlan_get_linkattr(dld_handle, linkid, &attr);
-	if (status != DLADM_STATUS_OK) {
-		nlog(LOG_DEBUG, "check_wlan: dladm_wlan_get_linkattr() for %s "
-		    "failed: %s", linkname,
-		    dladm_status2str(status, errmsg));
-		return (DLADM_WALK_CONTINUE);
-	}
-	if (attr.la_status == DLADM_WLAN_LINK_DISCONNECTED)
-		return (DLADM_WALK_TERMINATE);
-
-	wa->num_connected++;
-
-	if (wa->exp_essid != NULL) {
-		/* Is the NIC associated with the expected access point? */
-		(void) dladm_wlan_essid2str(&attr.la_wlan_attr.wa_essid,
-		    cur_essid);
-		switch (wa->condition) {
-		case NWAM_CONDITION_IS:
-			wa->res = strcmp(cur_essid, wa->exp_essid) == 0;
-			if (wa->res)
-				return (DLADM_WALK_TERMINATE);
-			break;
-		case NWAM_CONDITION_IS_NOT:
-			wa->res = strcmp(cur_essid, wa->exp_essid) != 0;
-			if (!wa->res)
-				return (DLADM_WALK_TERMINATE);
-			break;
-		case NWAM_CONDITION_CONTAINS:
-			wa->res = strstr(cur_essid, wa->exp_essid) != NULL;
-			if (wa->res)
-				return (DLADM_WALK_TERMINATE);
-			break;
-		case NWAM_CONDITION_DOES_NOT_CONTAIN:
-			wa->res = strstr(cur_essid, wa->exp_essid) == NULL;
-			if (!wa->res)
-				return (DLADM_WALK_TERMINATE);
-			break;
-		default:
-			return (DLADM_WALK_TERMINATE);
-		}
-		return (DLADM_WALK_CONTINUE);
-	}
-	if (wa->exp_bssid != NULL) {
-		/* Is the NIC associated with the expected access point? */
-		(void) dladm_wlan_bssid2str(&attr.la_wlan_attr.wa_bssid,
-		    cur_bssid);
-		switch (wa->condition) {
-		case NWAM_CONDITION_IS:
-			wa->res = strcmp(cur_bssid, wa->exp_bssid) == 0;
-			if (wa->res)
-				return (DLADM_WALK_TERMINATE);
-			break;
-		case NWAM_CONDITION_IS_NOT:
-			wa->res = strcmp(cur_bssid, wa->exp_bssid) != 0;
-			if (!wa->res)
-				return (DLADM_WALK_TERMINATE);
-			break;
-		default:
-			return (DLADM_WALK_TERMINATE);
-		}
-		return (DLADM_WALK_CONTINUE);
-	}
-	/*
-	 * Neither an ESSID or BSSID match is required - being connected to a
-	 * WLAN is enough.
-	 */
-	switch (wa->condition) {
-	case NWAM_CONDITION_IS:
-		wa->res = B_TRUE;
-		return (DLADM_WALK_TERMINATE);
-	default:
-		wa->res = B_FALSE;
-		return (DLADM_WALK_TERMINATE);
-	}
-	/*NOTREACHED*/
-	return (DLADM_WALK_CONTINUE);
-}
-
-static boolean_t
-test_condition_wireless_essid(nwam_condition_t condition,
-    const char *essid)
-{
-	struct nwamd_wlan_condition_walk_arg wa;
-
-	wa.condition = condition;
-	wa.exp_essid = essid;
-	wa.exp_bssid = NULL;
-	wa.num_connected = 0;
-	wa.res = B_FALSE;
-
-	(void) dladm_walk(check_wlan, dld_handle, &wa, DATALINK_CLASS_PHYS,
-	    DL_WIFI, DLADM_OPT_ACTIVE);
-
-	return (wa.num_connected > 0 && wa.res == B_TRUE);
-}
-
-static boolean_t
-test_condition_wireless_bssid(nwam_condition_t condition,
-    const char *bssid)
-{
-	struct nwamd_wlan_condition_walk_arg wa;
-
-	wa.condition = condition;
-	wa.exp_bssid = bssid;
-	wa.exp_essid = NULL;
-	wa.num_connected = 0;
-	wa.res = B_FALSE;
-
-	(void) dladm_walk(check_wlan, dld_handle, &wa, DATALINK_CLASS_PHYS,
-	    DL_WIFI, DLADM_OPT_ACTIVE);
-
-	return (wa.num_connected > 0 && wa.res == B_TRUE);
-}
 
 /*
  * This function takes an activation mode and a string representation of a
@@ -696,10 +550,10 @@ boolean_t
 nwamd_check_conditions(nwam_activation_mode_t activation_mode,
     char **condition_strings, uint_t num_conditions)
 {
-	boolean_t ret;
+	boolean_t ret = B_FALSE;
 	nwam_condition_t condition;
 	nwam_condition_object_type_t object_type;
-	char *object_name;
+	char *object_name = NULL;
 	int i, j;
 
 	for (i = 0; i < num_conditions; i++) {

@@ -29,7 +29,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <libdlwlan.h>
 #include <libnvpair.h>
 
 #include "libnwam_impl.h"
@@ -63,6 +62,8 @@ nwam_value_free(nwam_value_t value)
 		for (i = 0; i < value->nwv_value_numvalues; i++)
 			free(value->nwv_values.nwv_string[i]);
 		free(value->nwv_values.nwv_string);
+		break;
+	default:
 		break;
 	}
 	free(value);
@@ -719,14 +720,6 @@ struct nwam_value_entry loc_prop_nameservice_configsrc_entries[] =
 	{ NULL, 0 }
 };
 
-struct nwam_value_entry known_wlan_prop_security_mode_entries[] =
-{
-	{ "none", DLADM_WLAN_SECMODE_NONE },
-	{ "wep", DLADM_WLAN_SECMODE_WEP },
-	{ "wpa", DLADM_WLAN_SECMODE_WPA },
-	{ NULL, 0 }
-};
-
 struct nwam_prop_value_entry {
 	const char		*prop_name;
 	struct nwam_value_entry	*value_entries;
@@ -748,8 +741,6 @@ struct nwam_prop_value_entry {
 	    loc_prop_nameservice_configsrc_entries },
 	{ NWAM_LOC_PROP_LDAP_NAMESERVICE_CONFIGSRC,
 	    loc_prop_nameservice_configsrc_entries },
-	{ NWAM_KNOWN_WLAN_PROP_SECURITY_MODE,
-	    known_wlan_prop_security_mode_entries },
 	{ NULL, NULL }
 };
 
@@ -862,12 +853,6 @@ nwam_condition_to_condition_string(nwam_condition_object_type_t object_type,
 		object_type_string =
 		    NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN_STRING;
 		break;
-	case NWAM_CONDITION_OBJECT_TYPE_ESSID:
-		object_type_string = NWAM_CONDITION_OBJECT_TYPE_ESSID_STRING;
-		break;
-	case NWAM_CONDITION_OBJECT_TYPE_BSSID:
-		object_type_string = NWAM_CONDITION_OBJECT_TYPE_BSSID_STRING;
-		break;
 	default:
 		return (NWAM_INVALID_ARG);
 
@@ -881,15 +866,13 @@ nwam_condition_to_condition_string(nwam_condition_object_type_t object_type,
 		break;
 	case NWAM_CONDITION_CONTAINS:
 		if (object_type != NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN &&
-		    object_type != NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN &&
-		    object_type != NWAM_CONDITION_OBJECT_TYPE_ESSID)
+		    object_type != NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN)
 			return (NWAM_INVALID_ARG);
 		condition_string = NWAM_CONDITION_CONTAINS_STRING;
 		break;
 	case NWAM_CONDITION_DOES_NOT_CONTAIN:
 		if (object_type != NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN &&
-		    object_type != NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN &&
-		    object_type != NWAM_CONDITION_OBJECT_TYPE_ESSID)
+		    object_type != NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN)
 			return (NWAM_INVALID_ARG);
 
 		condition_string = NWAM_CONDITION_DOES_NOT_CONTAIN_STRING;
@@ -923,8 +906,6 @@ nwam_condition_to_condition_string(nwam_condition_object_type_t object_type,
 	case NWAM_CONDITION_OBJECT_TYPE_IP_ADDRESS:
 	case NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN:
 	case NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN:
-	case NWAM_CONDITION_OBJECT_TYPE_ESSID:
-	case NWAM_CONDITION_OBJECT_TYPE_BSSID:
 		(void) snprintf(string, NWAM_MAX_VALUE_LEN,
 		    "%s %s %s", object_type_string,
 		    condition_string, object_name);
@@ -980,12 +961,6 @@ nwam_condition_string_to_condition(const char *string,
 	else if (strcmp(object_type_string,
 	    NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN_STRING) == 0)
 		*object_typep = NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN;
-	else if (strcmp(object_type_string,
-	    NWAM_CONDITION_OBJECT_TYPE_ESSID_STRING) == 0)
-		*object_typep = NWAM_CONDITION_OBJECT_TYPE_ESSID;
-	else if (strcmp(object_type_string,
-	    NWAM_CONDITION_OBJECT_TYPE_BSSID_STRING) == 0)
-		*object_typep = NWAM_CONDITION_OBJECT_TYPE_BSSID;
 	else {
 		free(copy);
 		return (NWAM_INVALID_ARG);
@@ -1053,8 +1028,7 @@ nwam_condition_string_to_condition(const char *string,
 			if (*object_typep !=
 			    NWAM_CONDITION_OBJECT_TYPE_ADV_DOMAIN &&
 			    *object_typep !=
-			    NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN &&
-			    *object_typep != NWAM_CONDITION_OBJECT_TYPE_ESSID) {
+			    NWAM_CONDITION_OBJECT_TYPE_SYS_DOMAIN) {
 				free(copy);
 				free(*object_namep);
 				return (NWAM_INVALID_ARG);
@@ -1068,6 +1042,8 @@ nwam_condition_string_to_condition(const char *string,
 				free(*object_namep);
 				return (NWAM_INVALID_ARG);
 			}
+			break;
+		default:
 			break;
 		}
 
@@ -1109,12 +1085,6 @@ nwam_condition_rate(nwam_condition_object_type_t object_type,
 		(*ratep)++;
 		/* FALLTHRU */
 	case NWAM_CONDITION_OBJECT_TYPE_IP_ADDRESS:
-		(*ratep)++;
-		/* FALLTHRU */
-	case NWAM_CONDITION_OBJECT_TYPE_BSSID:
-		(*ratep)++;
-		/* FALLTHRU */
-	case NWAM_CONDITION_OBJECT_TYPE_ESSID:
 		(*ratep)++;
 		break;
 	default:

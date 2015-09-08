@@ -22,6 +22,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _NWAMCFG_H
@@ -128,17 +129,22 @@ extern "C" {
 #define	PT_LOC_IPPOOL_CONFIG	37
 #define	PT_LOC_IKE_CONFIG	38
 #define	PT_LOC_IPSECPOL_CONFIG	39
-#define	PT_WLAN_BSSIDS		40
-#define	PT_WLAN_PRIORITY	41
+#define	PT_WLAN_SSID		40
+#define	PT_WLAN_BSSID		41
 #define	PT_WLAN_KEYNAME		42
-#define	PT_WLAN_KEYSLOT		43
-#define	PT_WLAN_SECURITY_MODE	44
+#define	PT_WLAN_PRIORITY	43
+#define	PT_WLAN_DISABLED	44
+#define	PT_WLAN_EAP_USER	45
+#define	PT_WLAN_EAP_ANON	46
+#define	PT_WLAN_CA_CERT		47
+#define	PT_WLAN_PRIV		48
+#define	PT_WLAN_CLI_CERT	49
 /*
  * If any new PT_ are defined here, make sure it is added in the same
  * order into the pt_types array in nwamcfg.c
  */
 #define	PT_MIN			PT_UNKNOWN
-#define	PT_MAX			PT_WLAN_SECURITY_MODE
+#define	PT_MAX			PT_WLAN_CLI_CERT
 
 #define	MAX_SUBCMD_ARGS	3
 

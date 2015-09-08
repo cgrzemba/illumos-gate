@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <errno.h>
@@ -181,7 +182,7 @@ init_signalhandling(void)
 
 	(void) pthread_attr_init(&attr);
 	(void) pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-	if (err = pthread_create(&sighand, &attr, sighandler, NULL)) {
+	if ((err = pthread_create(&sighand, &attr, sighandler, NULL)) != 0) {
 		nlog(LOG_ERR, "pthread_create system: %s", strerror(err));
 		exit(EXIT_FAILURE);
 	} else {
@@ -220,14 +221,9 @@ static void
 lookup_daemon_properties(void)
 {
 	char *active_ncp_tmp;
-	char *scan_level_tmp;
 
 	(void) nwamd_lookup_boolean_property(OUR_FMRI, OUR_PG,
 	    OUR_DEBUG_PROP_NAME, &debug);
-	(void) nwamd_lookup_boolean_property(OUR_FMRI, OUR_PG,
-	    OUR_AUTOCONF_PROP_NAME, &wireless_autoconf);
-	(void) nwamd_lookup_boolean_property(OUR_FMRI, OUR_PG,
-	    OUR_STRICT_BSSID_PROP_NAME, &wireless_strict_bssid);
 
 	(void) pthread_mutex_lock(&active_ncp_mutex);
 	if ((active_ncp_tmp = malloc(NWAM_MAX_NAME_LEN)) == NULL ||
@@ -245,22 +241,6 @@ lookup_daemon_properties(void)
 	    OUR_CONDITION_CHECK_INTERVAL_PROP_NAME,
 	    &condition_check_interval) != 0)
 		condition_check_interval = CONDITION_CHECK_INTERVAL_DEFAULT;
-
-	if ((scan_level_tmp = malloc(NWAM_MAX_NAME_LEN)) == NULL ||
-	    nwamd_lookup_string_property(OUR_FMRI, OUR_PG,
-	    OUR_WIRELESS_SCAN_LEVEL_PROP_NAME, scan_level_tmp,
-	    NWAM_MAX_NAME_LEN) != 0) {
-		wireless_scan_level = WIRELESS_SCAN_LEVEL_DEFAULT;
-	} else {
-		if (dladm_wlan_str2strength(scan_level_tmp,
-		    &wireless_scan_level) != DLADM_STATUS_OK)
-			wireless_scan_level = DLADM_WLAN_STRENGTH_VERY_WEAK;
-	}
-	free(scan_level_tmp);
-
-	if (nwamd_lookup_count_property(OUR_FMRI, OUR_PG,
-	    OUR_WIRELESS_SCAN_INTERVAL_PROP_NAME, &wireless_scan_interval) != 0)
-		wireless_scan_interval = WIRELESS_SCAN_INTERVAL_DEFAULT;
 
 	if (nwamd_lookup_count_property(OUR_FMRI, OUR_PG,
 	    OUR_NCU_WAIT_TIME_PROP_NAME, &ncu_wait_time) != 0)

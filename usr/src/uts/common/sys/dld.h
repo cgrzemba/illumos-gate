@@ -117,17 +117,17 @@ typedef struct dld_ioc_phys_attr {
 	char		dip_dev[MAXLINKNAMELEN];
 } dld_ioc_phys_attr_t;
 
-/*
- * Secure objects ioctls
- */
 typedef enum {
 	DLD_SECOBJ_CLASS_WEP = 1,
-	DLD_SECOBJ_CLASS_WPA
+	DLD_SECOBJ_CLASS_PSK,
+	DLD_SECOBJ_CLASS_TLS,
+	DLD_SECOBJ_CLASS_TTLS,
+	DLD_SECOBJ_CLASS_PEAP
 } dld_secobj_class_t;
 
 #define	DLD_SECOBJ_OPT_CREATE	0x00000001
 #define	DLD_SECOBJ_NAME_MAX	32
-#define	DLD_SECOBJ_VAL_MAX	256
+#define	DLD_SECOBJ_VAL_MAX	264
 typedef struct dld_secobj {
 	char			so_name[DLD_SECOBJ_NAME_MAX];
 	dld_secobj_class_t	so_class;

@@ -21,19 +21,12 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
-#include <ctype.h>
-#include <errno.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <libdladm.h>
-#include <libdllink.h>
 #include <libdlwlan.h>
-#include <libgen.h>
-#include <libnwam.h>
+#include <syslog.h>
 
 #include "events.h"
 #include "known_wlans.h"
@@ -41,441 +34,163 @@
 #include "objects.h"
 #include "util.h"
 
-/*
- * known_wlans.c - contains routines which handle the known WLAN abstraction.
- */
-
-#define	KNOWN_WIFI_NETS_FILE		"/etc/nwam/known_wifi_nets"
-
-/* enum for parsing each line of /etc/nwam/known_wifi_nets */
-typedef enum {
-	ESSID = 0,
-	BSSID,
-	MAX_FIELDS
-} known_wifi_nets_fields_t;
-
-/* Structure for one BSSID */
-typedef struct bssid {
-	struct qelem	bssid_links;
-	char		*bssid;
-} bssid_t;
-
-/* Structure for an ESSID and its BSSIDs */
-typedef struct kw {
-	struct qelem	kw_links;
-	char		kw_essid[NWAM_MAX_NAME_LEN];
-	uint32_t	kw_num_bssids;
-	struct qelem	kw_bssids;
-} kw_t;
-
-/* Holds the linked-list of ESSIDs to make Known WLANs out of */
-static struct qelem kw_list;
-
-/* Used in walking secobjs looking for an ESSID prefix match. */
-struct nwamd_secobj_arg {
-	char nsa_essid_prefix[DLADM_WLAN_MAX_KEYNAME_LEN];
-	char nsa_keyname[DLADM_WLAN_MAX_KEYNAME_LEN];
-	dladm_wlan_key_t *nsa_key;
-	uint64_t nsa_secmode;
-};
-
-static void
-kw_list_init(void)
+int
+find_matching_wlan_cb(nwam_known_wlan_handle_t kwh, void *data)
 {
-	kw_list.q_forw = kw_list.q_back = &kw_list;
-}
+	nwam_wlan_t *mywlan = data;
+	nwam_error_t err;
 
-static void
-kw_list_free(void)
-{
-	kw_t *kw;
-	bssid_t *b;
+	nwam_value_t bssidval;
+	char *bssidstr;
+	nwam_value_t ssidval;
+	char *ssidstr;
+	nwam_value_t keynameval;
+	char *keynamestr;
 
-	while (kw_list.q_forw != &kw_list) {
-		kw = (kw_t *)kw_list.q_forw;
+	char *currnamestr;
+	int currid = -1;
 
-		/* free kw_bssids */
-		while (kw->kw_bssids.q_forw != &kw->kw_bssids) {
-			b = (bssid_t *)kw->kw_bssids.q_forw;
-			remque(&b->bssid_links);
-			free(b->bssid);
-			free(b);
-		}
-		remque(&kw->kw_links);
-		free(kw);
-	}
-}
-
-/* Returns the entry in kw_list for the given ESSID.  NULL if non-existent */
-static kw_t *
-kw_lookup(const char *essid)
-{
-	kw_t *kw;
-
-	if (essid == NULL)
-		return (NULL);
-
-	for (kw = (kw_t *)kw_list.q_forw;
-	    kw != (kw_t *)&kw_list;
-	    kw = (kw_t *)kw->kw_links.q_forw) {
-		if (strcmp(essid, kw->kw_essid) == 0)
-			return (kw);
-	}
-	return (NULL);
-}
-
-/* Adds an ESSID/BSSID combination to kw_list.  Returns B_TRUE on success. */
-static boolean_t
-kw_add(const char *essid, const char *bssid)
-{
-	kw_t *kw;
-	bssid_t *b;
-
-	if ((b = calloc(1, sizeof (bssid_t))) == NULL) {
-		nlog(LOG_ERR, "kw_add: cannot allocate for bssid_t: %m");
-		return (B_FALSE);
-	}
-	if ((kw = calloc(1, sizeof (kw_t))) == NULL) {
-		nlog(LOG_ERR, "kw_add: cannot allocate for kw_t: %m");
-		free(b);
-		return (B_FALSE);
-	}
-	kw->kw_bssids.q_forw = kw->kw_bssids.q_back = &kw->kw_bssids;
-
-	b->bssid = strdup(bssid);
-	(void) strlcpy(kw->kw_essid, essid, sizeof (kw->kw_essid));
-	kw->kw_num_bssids = 1;
-
-	insque(&b->bssid_links, kw->kw_bssids.q_back);
-	insque(&kw->kw_links, kw_list.q_back);
-
-	nlog(LOG_DEBUG, "kw_add: added Known WLAN %s, BSSID %s", essid, bssid);
-	return (B_TRUE);
-}
-
-/*
- * Add the BSSID to the given kw.  Since /etc/nwam/known_wifi_nets is
- * populated such that the wifi networks visited later are towards the end
- * of the file, remove the give kw from its current position and append it
- * to the end of kw_list.  This ensures that kw_list is in the reverse
- * order of visited wifi networks.  Returns B_TRUE on success.
- */
-static boolean_t
-kw_update(kw_t *kw, const char *bssid)
-{
-	bssid_t *b;
-
-	if ((b = calloc(1, sizeof (bssid_t))) == NULL) {
-		nlog(LOG_ERR, "kw_update: cannot allocate for bssid_t: %m");
-		return (B_FALSE);
-	}
-
-	b->bssid = strdup(bssid);
-	insque(&b->bssid_links, kw->kw_bssids.q_back);
-	kw->kw_num_bssids++;
-
-	/* remove kw from current position */
-	remque(&kw->kw_links);
-	/* and insert at end */
-	insque(&kw->kw_links, kw_list.q_back);
-
-	nlog(LOG_DEBUG, "kw_update: appended BSSID %s to Known WLAN %s",
-	    bssid, kw->kw_essid);
-	return (B_TRUE);
-}
-
-/*
- * Parses /etc/nwam/known_wifi_nets and populates kw_list, with the oldest
- * wifi networks first in the list.  Returns the number of unique entries
- * in kw_list (to use for priority values).
- */
-static int
-parse_known_wifi_nets(void)
-{
-	FILE *fp;
-	char line[LINE_MAX];
-	char *cp, *tok[MAX_FIELDS];
-	int lnum, num_kw = 0;
-	kw_t *kw;
-
-	kw_list_init();
+	if (mywlan == NULL)
+		return (-1);
 
 	/*
-	 * The file format is:
-	 * essid\tbssid (essid followed by tab followed by bssid)
+	 * We return NWAM_SUCCESS if nothing is found or errors are encountered
+	 * to not halt known wlans walk
 	 */
-	fp = fopen(KNOWN_WIFI_NETS_FILE, "r");
-	if (fp == NULL)
-		return (0);
-	for (lnum = 1; fgets(line, sizeof (line), fp) != NULL; lnum++) {
 
-		cp = line;
-		while (isspace(*cp))
-			cp++;
-		if (*cp == '#' || *cp == '\0')
-			continue;
-
-		if (bufsplit(cp, MAX_FIELDS, tok) != MAX_FIELDS) {
-			syslog(LOG_ERR, "%s:%d: wrong number of tokens; "
-			    "ignoring entry", KNOWN_WIFI_NETS_FILE, lnum);
-			continue;
-		}
-
-		if ((kw = kw_lookup(tok[ESSID])) == NULL) {
-			if (!kw_add(tok[ESSID], tok[BSSID])) {
-				nlog(LOG_ERR,
-				    "%s:%d: cannot add entry (%s,%s) to list",
-				    KNOWN_WIFI_NETS_FILE, lnum,
-				    tok[ESSID], tok[BSSID]);
-			} else {
-				num_kw++;
-			}
-		} else {
-			if (!kw_update(kw, tok[BSSID])) {
-				nlog(LOG_ERR,
-				    "%s:%d:cannot update entry (%s,%s) to list",
-				    KNOWN_WIFI_NETS_FILE, lnum,
-				    tok[ESSID], tok[BSSID]);
-			}
-		}
-		/* next line ... */
-	}
-
-	(void) fclose(fp);
-	return (num_kw);
-}
-
-/*
- * Walk security objects looking for one that matches the essid prefix.
- * Store the key and keyname if a match is found - we use the last match
- * as the key for the known WLAN, since it is the most recently updated.
- */
-/* ARGSUSED0 */
-static boolean_t
-find_secobj_matching_prefix(dladm_handle_t dh, void *arg,
-    const char *secobjname)
-{
-	struct nwamd_secobj_arg *nsa = arg;
-
-	if (strncmp(nsa->nsa_essid_prefix, secobjname,
-	    strlen(nsa->nsa_essid_prefix)) == 0) {
-		nlog(LOG_DEBUG, "find_secobj_matching_prefix: "
-		    "found secobj with prefix %s : %s\n",
-		    nsa->nsa_essid_prefix, secobjname);
-		/* Free last key found (if any) */
-		if (nsa->nsa_key != NULL)
-			free(nsa->nsa_key);
-		/* Retrive key so we can get security mode */
-		nsa->nsa_key = nwamd_wlan_get_key_named(secobjname, 0);
-		(void) strlcpy(nsa->nsa_keyname, secobjname,
-		    sizeof (nsa->nsa_keyname));
-		switch (nsa->nsa_key->wk_class) {
-		case DLADM_SECOBJ_CLASS_WEP:
-			nsa->nsa_secmode = DLADM_WLAN_SECMODE_WEP;
-			nlog(LOG_DEBUG, "find_secobj_matching_prefix: "
-			    "got WEP key %s", nsa->nsa_keyname);
-			break;
-		case DLADM_SECOBJ_CLASS_WPA:
-			nsa->nsa_secmode = DLADM_WLAN_SECMODE_WPA;
-			nlog(LOG_DEBUG, "find_secobj_matching_prefix: "
-			    "got WPA key %s", nsa->nsa_keyname);
-			break;
-		default:
-			/* shouldn't happen */
-			nsa->nsa_secmode = DLADM_WLAN_SECMODE_NONE;
-			nlog(LOG_ERR, "find_secobj_matching_prefix: "
-			    "key class for key %s was invalid",
-			    nsa->nsa_keyname);
-			break;
-		}
-	}
-	return (B_TRUE);
-}
-
-
-/* Upgrade /etc/nwam/known_wifi_nets file to new libnwam-based config model */
-void
-upgrade_known_wifi_nets_config(void)
-{
-	kw_t *kw;
-	bssid_t *b;
-	nwam_known_wlan_handle_t kwh;
-	char **bssids;
-	nwam_error_t err;
-	uint64_t priority;
-	int i, num_kw;
-	struct nwamd_secobj_arg nsa;
-
-	nlog(LOG_INFO, "Upgrading %s to Known WLANs", KNOWN_WIFI_NETS_FILE);
-
-	/* Parse /etc/nwam/known_wifi_nets */
-	num_kw = parse_known_wifi_nets();
-
-	/* Create Known WLANs for each unique ESSID */
-	for (kw = (kw_t *)kw_list.q_forw, priority = num_kw-1;
-	    kw != (kw_t *)&kw_list;
-	    kw = (kw_t *)kw->kw_links.q_forw, priority--) {
-		nwam_value_t priorityval = NULL;
-		nwam_value_t bssidsval = NULL;
-		nwam_value_t secmodeval = NULL;
-		nwam_value_t keynameval = NULL;
-
-		nlog(LOG_DEBUG, "Creating Known WLAN %s", kw->kw_essid);
-
-		if ((err = nwam_known_wlan_create(kw->kw_essid, &kwh))
-		    != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not create known wlan: %s", kw->kw_essid,
-			    nwam_strerror(err));
-			continue;
-		}
-
-		/* priority of this ESSID */
-		if ((err = nwam_value_create_uint64(priority, &priorityval))
-		    != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not create priority value: %s", kw->kw_essid,
-			    nwam_strerror(err));
-			nwam_known_wlan_free(kwh);
-			continue;
-		}
-		err = nwam_known_wlan_set_prop_value(kwh,
-		    NWAM_KNOWN_WLAN_PROP_PRIORITY, priorityval);
-		nwam_value_free(priorityval);
-		if (err != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not set priority value: %s", kw->kw_essid,
-			    nwam_strerror(err));
-			nwam_known_wlan_free(kwh);
-			continue;
-		}
-
-		/* loop through kw->kw_bssids and create an array of bssids */
-		bssids = calloc(kw->kw_num_bssids, sizeof (char *));
-		if (bssids == NULL) {
-			nwam_known_wlan_free(kwh);
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not calloc for bssids: %m", kw->kw_essid);
-			continue;
-		}
-		for (b = (bssid_t *)kw->kw_bssids.q_forw, i = 0;
-		    b != (bssid_t *)&kw->kw_bssids;
-		    b = (bssid_t *)b->bssid_links.q_forw, i++) {
-			bssids[i] = strdup(b->bssid);
-		}
-
-		/* BSSIDs for this ESSID */
-		if ((err = nwam_value_create_string_array(bssids,
-		    kw->kw_num_bssids, &bssidsval)) != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not create bssids value: %s", kw->kw_essid,
-			    nwam_strerror(err));
-			for (i = 0; i < kw->kw_num_bssids; i++)
-				free(bssids[i]);
-			free(bssids);
-			nwam_known_wlan_free(kwh);
-			continue;
-		}
-		err = nwam_known_wlan_set_prop_value(kwh,
-		    NWAM_KNOWN_WLAN_PROP_BSSIDS, bssidsval);
-		nwam_value_free(bssidsval);
-		for (i = 0; i < kw->kw_num_bssids; i++)
-			free(bssids[i]);
-		free(bssids);
-		if (err != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not set bssids: %s", kw->kw_essid,
-			    nwam_strerror(err));
-			nwam_known_wlan_free(kwh);
-			continue;
-		}
-
-		/*
-		 * Retrieve last key matching ESSID prefix if any, and set
-		 * the retrieved key name and security mode.
-		 */
-		nwamd_set_key_name(kw->kw_essid, NULL, nsa.nsa_essid_prefix,
-		    sizeof (nsa.nsa_essid_prefix));
-		nsa.nsa_key = NULL;
-		nsa.nsa_secmode = DLADM_WLAN_SECMODE_NONE;
-		(void) dladm_walk_secobj(dld_handle, &nsa,
-		    find_secobj_matching_prefix, DLADM_OPT_PERSIST);
-		if (nsa.nsa_key != NULL) {
-			if ((err = nwam_value_create_string(nsa.nsa_keyname,
-			    &keynameval)) == NWAM_SUCCESS) {
-				(void) nwam_known_wlan_set_prop_value(kwh,
-				    NWAM_KNOWN_WLAN_PROP_KEYNAME, keynameval);
-			}
-			free(nsa.nsa_key);
-			nwam_value_free(keynameval);
-		}
-
-		if ((err = nwam_value_create_uint64(nsa.nsa_secmode,
-		    &secmodeval)) != NWAM_SUCCESS ||
-		    (err = nwam_known_wlan_set_prop_value(kwh,
-		    NWAM_KNOWN_WLAN_PROP_SECURITY_MODE, secmodeval))
-		    != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not set security mode: %s",
-			    kw->kw_essid, nwam_strerror(err));
-			nwam_value_free(secmodeval);
-			nwam_known_wlan_free(kwh);
-			continue;
-		}
-
-		/* commit, no collision checking by libnwam */
-		err = nwam_known_wlan_commit(kwh,
-		    NWAM_FLAG_KNOWN_WLAN_NO_COLLISION_CHECK);
-		nwam_known_wlan_free(kwh);
-		if (err != NWAM_SUCCESS) {
-			nlog(LOG_ERR, "upgrade wlan %s: "
-			    "could not commit wlan: %s", kw->kw_essid,
-			    nwam_strerror(err));
-		}
-		/* next ... */
-	}
-
-	kw_list_free();
-}
-
-nwam_error_t
-known_wlan_get_keyname(const char *essid, char *name)
-{
-	nwam_known_wlan_handle_t kwh = NULL;
-	nwam_value_t keynameval = NULL;
-	char *keyname;
-	nwam_error_t err;
-
-	if ((err = nwam_known_wlan_read(essid, 0, &kwh)) != NWAM_SUCCESS)
-		return (err);
+	/*
+	 * BSSID. Skip this check if the user added manually a known wlan
+	 * without bssid field
+	 */
 	if ((err = nwam_known_wlan_get_prop_value(kwh,
-	    NWAM_KNOWN_WLAN_PROP_KEYNAME, &keynameval)) == NWAM_SUCCESS &&
-	    (err = nwam_value_get_string(keynameval, &keyname))
-	    == NWAM_SUCCESS) {
-		(void) strlcpy(name, keyname, NWAM_MAX_VALUE_LEN);
+	    NWAM_KNOWN_WLAN_PROP_BSSID, &bssidval)) == NWAM_SUCCESS) {
+		uint8_t bssid[6];
+
+		err = nwam_value_get_string(bssidval, &bssidstr);
+		if (err != NWAM_SUCCESS) {
+			nwam_value_free(bssidval);
+			return (NWAM_SUCCESS);
+		}
+		if (dladm_wlan_str2bssid(bssidstr, bssid)) {
+			nwam_value_free(bssidval);
+			return (NWAM_SUCCESS);
+		}
+		if (memcmp(bssid, mywlan->nww_bssid,
+		    DLADM_WLAN_BSSID_LEN) != 0) {
+			nwam_value_free(bssidval);
+			return (NWAM_SUCCESS);
+		}
+		nwam_value_free(bssidval);
 	}
-	if (keynameval != NULL)
+
+	/* ssid */
+	if ((err = nwam_known_wlan_get_prop_value(kwh,
+	    NWAM_KNOWN_WLAN_PROP_SSID, &ssidval)) != NWAM_SUCCESS)
+		return (NWAM_SUCCESS);
+
+	err = nwam_value_get_string(ssidval, &ssidstr);
+	if (err != NWAM_SUCCESS) {
+		nwam_value_free(ssidval);
+		return (NWAM_SUCCESS);
+	}
+
+	if (memcmp(ssidstr, mywlan->nww_essid, mywlan->nww_esslen) != 0) {
+		nwam_value_free(ssidval);
+		return (NWAM_SUCCESS);
+	}
+	nwam_value_free(ssidval);
+
+	/* secmode <> secobjclass */
+	err = nwam_known_wlan_get_prop_value(kwh, NWAM_KNOWN_WLAN_PROP_KEYNAME,
+	    &keynameval);
+	if (mywlan->nww_security_mode == DLADM_WLAN_SECMODE_NONE &&
+	    err != NWAM_SUCCESS) {
+		goto valid;
+	} else if (err != NWAM_SUCCESS) {
+		return (NWAM_SUCCESS);
+	}
+	err = nwam_value_get_string(keynameval, &keynamestr);
+	if (err != NWAM_SUCCESS) {
 		nwam_value_free(keynameval);
+		return (NWAM_SUCCESS);
+	}
 
-	if (kwh != NULL)
-		nwam_known_wlan_free(kwh);
+	{
+		secobj_class_info_t key_if;
 
-	return (err);
+		key_if.sc_name = keynamestr;
+		key_if.sc_dladmclass = 0;
+		if (dladm_walk_secobj(dld_handle, &key_if, find_matching_secobj,
+		    DLADM_OPT_PERSIST)) {
+			nwam_value_free(keynameval);
+			return (NWAM_SUCCESS);
+		}
+
+		if (key_if.sc_dladmclass == 0) {
+			nwam_value_free(keynameval);
+			return (NWAM_SUCCESS);
+		}
+
+		if (!((key_if.sc_dladmclass == DLADM_SECOBJ_CLASS_PSK &&
+		    mywlan->nww_security_mode == DLADM_WLAN_SECMODE_PSK) ||
+		    (key_if.sc_dladmclass == DLADM_SECOBJ_CLASS_WEP &&
+		    mywlan->nww_security_mode == DLADM_WLAN_SECMODE_WEP) ||
+		    (key_if.sc_dladmclass >= DLADM_SECOBJ_CLASS_TLS &&
+		    mywlan->nww_security_mode == DLADM_WLAN_SECMODE_EAP))) {
+			nwam_value_free(keynameval);
+			return (NWAM_SUCCESS);
+		}
+		nwam_value_free(keynameval);
+	}
+
+valid:
+	if ((err = nwam_known_wlan_get_name(kwh, &currnamestr)) !=
+	    NWAM_SUCCESS)
+		return (NWAM_SUCCESS);
+
+	currid = atoi(currnamestr);
+	free(currnamestr);
+
+	if (currid <= 0 || currid >= INT_MAX)
+		return (NWAM_SUCCESS);
+
+	mywlan->nww_wlanid = currid;
+
+	/* found known wlan, halt walk */
+	return (currid);
 }
 
-/* Performs a scan on a wifi link NCU */
 /* ARGSUSED */
 static int
 nwamd_ncu_known_wlan_committed(nwamd_object_t object, void *data)
 {
 	nwamd_ncu_t *ncu_data = object->nwamd_object_data;
+	dladm_status_t status;
+	struct wpa_ctrl *ctrl_conn = NULL;
+	char *reconf[] = {"RECONFIGURE"};
 
-	if (ncu_data->ncu_type != NWAM_NCU_TYPE_LINK)
+	if (ncu_data->ncu_type != NWAM_NCU_TYPE_LINK ||
+	    ncu_data->ncu_link.nwamd_link_media != DL_WIFI ||
+	    (object->nwamd_object_state != NWAM_STATE_OFFLINE &&
+	    object->nwamd_object_state != NWAM_STATE_INITIALIZED))
 		return (0);
 
-	/* network selection will be done only if possible */
-	if (ncu_data->ncu_link.nwamd_link_media == DL_WIFI)
-		(void) nwamd_wlan_scan(ncu_data->ncu_name);
+	status = dladm_wlan_validate(dld_handle,
+	    ncu_data->ncu_link.nwamd_link_id, &ctrl_conn, NULL);
+	if (status != DLADM_STATUS_OK) {
+		nlog(LOG_ERR, "nwamd_ncu_known_wlan_committed(%s): wpa_s ctrl "
+		    "interface is down (%d)", ncu_data->ncu_name, status);
+		return (-1);
+	}
+
+	if (wpa_request(ctrl_conn, 1, reconf)) {
+		nlog(LOG_ERR, "nwamd_ncu_known_wlan_committed(%s): failed wpa_s"
+		    "reconfiguration", ncu_data->ncu_name);
+		wpa_ctrl_close(ctrl_conn);
+		return (-1);
+	}
+
+	wpa_ctrl_close(ctrl_conn);
 	return (0);
 }
 
@@ -485,8 +200,10 @@ void
 nwamd_known_wlan_handle_init_event(nwamd_event_t known_wlan_event)
 {
 	/*
-	 * Since the Known WLAN list has changed, do a rescan so that the
-	 * best network is selected.
+	 * Since the Known WLAN list has changed, do a reconfigure so that the
+	 * best network is selected. If the known wlan is destroyed by nwamd or
+	 * by the user we need to propagate new known wlan list to wpa_s
+	 * configuration as well.
 	 */
 	(void) nwamd_walk_objects(NWAM_OBJECT_TYPE_NCU,
 	    nwamd_ncu_known_wlan_committed, NULL);
@@ -499,14 +216,11 @@ nwamd_known_wlan_handle_action_event(nwamd_event_t known_wlan_event)
 	    nwe_action) {
 	case NWAM_ACTION_ADD:
 	case NWAM_ACTION_REFRESH:
-		nwamd_known_wlan_handle_init_event(known_wlan_event);
-		break;
 	case NWAM_ACTION_DESTROY:
-		/* Nothing needs to be done for destroy */
-		break;
-	/* all other events are invalid for known WLANs */
 	case NWAM_ACTION_ENABLE:
 	case NWAM_ACTION_DISABLE:
+		nwamd_known_wlan_handle_init_event(known_wlan_event);
+		break;
 	default:
 		nlog(LOG_INFO, "nwam_known_wlan_handle_action_event: "
 		    "unexpected action");
@@ -518,7 +232,7 @@ int
 nwamd_known_wlan_action(const char *known_wlan, nwam_action_t action)
 {
 	nwamd_event_t known_wlan_event = nwamd_event_init_object_action
-	    (NWAM_OBJECT_TYPE_KNOWN_WLAN, known_wlan, NULL, action);
+		(NWAM_OBJECT_TYPE_KNOWN_WLAN, known_wlan, NULL, action);
 	if (known_wlan_event == NULL)
 		return (1);
 	nwamd_event_enqueue(known_wlan_event);

@@ -35,8 +35,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 /*
  * IEEE 802.11 generic crypto support
  */
@@ -126,7 +124,7 @@ ieee80211_crypto_resetkey(ieee80211com_t *ic,
  *	ieee80211_key_update_end(ic);
  */
 int
-ieee80211_crypto_newkey(ieee80211com_t *ic, int cipher, int flags,
+ieee80211_crypto_newkey(ieee80211com_t *ic, uint8_t cipher, uint16_t flags,
     struct ieee80211_key *key)
 {
 	const struct ieee80211_cipher *cip;
@@ -171,7 +169,7 @@ ieee80211_crypto_newkey(ieee80211com_t *ic, int cipher, int flags,
 	 */
 	if (cipher == IEEE80211_CIPHER_TKIP &&
 	    (ic->ic_caps & IEEE80211_C_TKIPMIC) == 0) {
-		ieee80211_dbg(IEEE80211_MSG_CRYPTO,
+		ieee80211_dbg(IEEE80211_MSG_CRYPTO, "ieee80211_crypto_newkey: "
 		    "no h/w support for TKIP MIC, falling back to s/w\n");
 		flags |= IEEE80211_KEY_SWMIC;
 	}
@@ -190,7 +188,7 @@ again:
 		 * different state and/or attach different method
 		 * pointers.
 		 */
-		key->wk_flags = (uint16_t)flags;
+		key->wk_flags = flags;
 		keyctx = cip->ic_attach(ic, key);
 		if (keyctx == NULL) {
 			ieee80211_dbg(IEEE80211_MSG_CRYPTO, "crypto_setkey: "
@@ -205,7 +203,7 @@ again:
 	/*
 	 * Commit to requested usage so driver can see the flags.
 	 */
-	key->wk_flags = (uint16_t)flags;
+	key->wk_flags = flags;
 
 	/*
 	 * Ask the driver for a key index if we don't have one.

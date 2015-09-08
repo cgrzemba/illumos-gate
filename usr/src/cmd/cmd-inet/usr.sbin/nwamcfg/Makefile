@@ -32,10 +32,9 @@ include ../../../Makefile.cmd
 
 XGETFLAGS +=	-a -x $(PROG).xcl
 LFLAGS =	-t
-LDLIBS +=	-ll -ltecla -lnwam -lumem
+LDLIBS +=	-ll -ltecla -ldladm -lnwam -lumem
 YFLAGS +=	-d -b nwamcfg_grammar
 CLEANFILES +=	nwamcfg_lex.c nwamcfg_grammar.tab.c nwamcfg_grammar.tab.h
-CLEANFILES +=	$(PROG).ln
 
 CERRWARN +=	-_gcc=-Wno-switch
 CERRWARN +=	-_gcc=-Wno-uninitialized
@@ -45,7 +44,7 @@ CERRWARN +=	-_gcc=-Wno-implicit-function-declaration
 
 .KEEP_STATE:
 
-all: $(PROG) 
+all: $(PROG)
 
 $(PROG): $(OBJS)
 	$(LINK.c) $(OBJS) -o $@ $(LDLIBS)

@@ -44,7 +44,6 @@
 #include <sys/net80211_proto.h>
 #include <sys/net80211_crypto.h>
 #include <sys/net80211_ht.h>
-#include <net/wpa.h>
 
 /*
  * IEEE802.11 kernel support module
@@ -106,7 +105,6 @@ extern "C" {
 /* NB: this is intentionally setup to be IEEE80211_CAPINFO_PRIVACY */
 #define	IEEE80211_F_PRIVACY	0x00000010	/* CONF: privacy enabled */
 #define	IEEE80211_F_PUREG	0x00000020	/* CONF: 11g w/o 11b sta's */
-#define	IEEE80211_F_SCANONLY	0x00000040	/* CONF: scan only */
 #define	IEEE80211_F_SCAN	0x00000080	/* STATUS: scanning */
 #define	IEEE80211_F_ASCAN	0x00000100	/* STATUS: active scan */
 #define	IEEE80211_F_SIBSS	0x00000200	/* STATUS: start IBSS */
@@ -226,7 +224,6 @@ extern "C" {
 #define	WME_AC_VI		2	/* video */
 #define	WME_AC_VO		3	/* voice */
 
-#define	MAX_EVENT		16
 #define	MAX_IEEE80211STR	256
 
 /* For IEEE80211_RADIOTAP_FLAGS */
@@ -250,15 +247,16 @@ extern "C" {
 
 /*
  * Authentication mode.
+ * auth_algs should be only OPEN/SHARED/LEAP
+ * see IEEE80211_AUTH_ALG_* in net80211_proto.h
+ * NONE/8021X/AUTO/WPA refer to key_mgmt protocols!
  */
 enum ieee80211_authmode {
 	IEEE80211_AUTH_NONE	= 0,
 	IEEE80211_AUTH_OPEN	= 1,	/* open */
 	IEEE80211_AUTH_SHARED	= 2,	/* shared-key */
 	IEEE80211_AUTH_8021X	= 3,	/* 802.1x */
-	IEEE80211_AUTH_AUTO	= 4,	/* auto-select/accept */
-	/* NB: these are used only for ioctls */
-	IEEE80211_AUTH_WPA	= 5	/* WPA/RSN w/ 802.1x/PSK */
+	IEEE80211_AUTH_AUTO	= 4	/* auto-select/accept */
 };
 
 enum ieee80211_state {
@@ -268,6 +266,7 @@ enum ieee80211_state {
 	IEEE80211_S_ASSOC	= 3,	/* try to assoc */
 	IEEE80211_S_RUN		= 4	/* associated */
 };
+
 #define	IEEE80211_S_MAX	(IEEE80211_S_RUN+1)
 
 /*
@@ -277,6 +276,7 @@ enum ieee80211_state {
 #define	IEEE80211_RATE_SIZE	8	/* 802.11 standard */
 #define	IEEE80211_XRATE_SIZE	(IEEE80211_RATE_MAXSIZE - IEEE80211_RATE_SIZE)
 					/* size of extended supported rates */
+
 struct ieee80211_rateset {
 	uint8_t			ir_nrates;
 	uint8_t			ir_rates[IEEE80211_RATE_MAXSIZE];
@@ -513,9 +513,9 @@ struct ieee80211com {
 
 	kmutex_t		ic_doorlock;
 	char			ic_wpadoor[MAX_IEEE80211STR];
-
-	wpa_event_type		ic_eventq[MAX_EVENT];
-	uint32_t		ic_evq_head, ic_evq_tail;
+	uint32_t		ic_ev_type;
+	uint16_t		ic_ev_reason;
+	uint8_t			ic_ev_beacon[IEEE80211_ADDR_LEN];
 
 	/* Runtime states */
 	uint32_t		ic_flags;	/* state/conf flags */
@@ -672,7 +672,6 @@ void ieee80211_beacon_miss(ieee80211com_t *);
 
 void ieee80211_begin_scan(ieee80211com_t *, boolean_t);
 void ieee80211_next_scan(ieee80211com_t *);
-void ieee80211_end_scan(ieee80211com_t *);
 void ieee80211_cancel_scan(ieee80211com_t *);
 
 void ieee80211_sta_join(ieee80211com_t *, ieee80211_node_t *);
@@ -704,7 +703,7 @@ ieee80211_node_t *ieee80211_find_rxnode(ieee80211com_t *,
 extern struct ieee80211_key *ieee80211_crypto_encap(ieee80211com_t *, mblk_t *);
 extern struct ieee80211_key *ieee80211_crypto_decap(ieee80211com_t *, mblk_t *,
 	int);
-extern int ieee80211_crypto_newkey(ieee80211com_t *, int, int,
+extern int ieee80211_crypto_newkey(ieee80211com_t *, uint8_t, uint16_t,
 	struct ieee80211_key *);
 extern int ieee80211_crypto_delkey(ieee80211com_t *, struct ieee80211_key *);
 extern int ieee80211_crypto_setkey(ieee80211com_t *, struct ieee80211_key *,

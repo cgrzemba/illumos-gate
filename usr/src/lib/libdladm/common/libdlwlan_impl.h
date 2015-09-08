@@ -21,12 +21,12 @@
 /*
  * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _LIBDLWLAN_IMPL_H
 #define	_LIBDLWLAN_IMPL_H
 
-#include <sys/types.h>
 #include <inet/wifi_ioctl.h>
 #include <sys/mac.h>
 
@@ -39,29 +39,18 @@ extern "C" {
 #endif
 
 /*
- * Map a signal value from 0-15 into an enumerated strength.  Since there are
- * 5 strengths but 16 values, by convention the "middle" strength gets the
- * extra value.  Thus, the buckets are 0-2, 3-5, 6-9, 10-12, and 13-15.
+ * These settings are not supported by current device drivers:
+ *
+ * powermode: Specifies the power management mode of the WiFi link.
+ * Possible values are:
+ * 	off (disable power management),
+ * 	max (maximum power savings), and
+ * 	fast (performance sensitive power management).
+ * Default is off.
+ *
+ * radio: Specifies whether the radio is on or off;
+ * default is on.
  */
-#define	DLADM_WLAN_SIGNAL2STRENGTH(signal)			\
-	    (((signal) > 12 ? DLADM_WLAN_STRENGTH_EXCELLENT :	\
-	    ((signal) > 9 ? DLADM_WLAN_STRENGTH_VERY_GOOD : 	\
-	    ((signal) > 5 ? DLADM_WLAN_STRENGTH_GOOD :		\
-	    ((signal) > 2 ? DLADM_WLAN_STRENGTH_WEAK :		\
-	    DLADM_WLAN_STRENGTH_VERY_WEAK)))))
-
-/*
- * Convert between an OFDM MHz and a channel number.
- */
-#define	DLADM_WLAN_OFDM2CHAN(mhz)		(((mhz) - 5000) / 5)
-
-#define	DLADM_WLAN_CONNECT_POLLRATE		200 /* milliseconds */
-
-#define	DLADM_WLAN_MAX_RATES	4
-typedef struct dladm_wlan_rates {
-	uint8_t		wr_rates[DLADM_WLAN_MAX_RATES];
-	int		wr_cnt;
-} dladm_wlan_rates_t;
 
 typedef enum {
 	DLADM_WLAN_RADIO_ON = 1,
@@ -74,12 +63,9 @@ typedef enum {
 	DLADM_WLAN_PM_FAST
 } dladm_wlan_powermode_t;
 
-extern	dladm_status_t i_dladm_wlan_legacy_ioctl(dladm_handle_t,
-			    datalink_id_t, wldp_t *, uint_t, size_t, uint_t,
-			    size_t);
 extern dladm_status_t	i_dladm_wlan_param(dladm_handle_t, datalink_id_t,
 			    void *, mac_prop_id_t, size_t, boolean_t);
-extern boolean_t	i_dladm_wlan_convert_chan(wl_phy_conf_t *, uint32_t *);
+extern boolean_t	i_dladm_wlan_convert_chan(wl_phy_conf_t *, uint16_t *);
 
 #ifdef	__cplusplus
 }

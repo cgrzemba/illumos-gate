@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _NCU_H
@@ -28,9 +29,6 @@
 
 #include <dhcpagent_ipc.h>
 #include <dhcpagent_util.h>
-#include <libdladm.h>
-#include <libdlpi.h>
-#include <libdlwlan.h>
 #include <libinetutil.h>
 #include <libipadm.h>
 #include <libnwam.h>
@@ -44,10 +42,6 @@
 extern pthread_mutex_t active_ncp_mutex;
 extern pthread_mutex_t active_loc_mutex;
 extern char active_loc[];
-extern uint64_t wireless_scan_interval;
-extern dladm_wlan_strength_t wireless_scan_level;
-extern boolean_t wireless_autoconf;
-extern boolean_t wireless_strict_bssid;
 
 /*
  * NCPs are collections of NCUs.  At the moment there is one NCP in the system
@@ -71,30 +65,18 @@ extern boolean_t wireless_strict_bssid;
 
 /* Stores details of last/current WiFi scans */
 typedef struct nwamd_wifi_scan {
-	char nwamd_wifi_scan_link[NWAM_MAX_NAME_LEN];
-	nwam_wlan_t nwamd_wifi_scan_last[NWAMD_MAX_NUM_WLANS];
-	uint_t nwamd_wifi_scan_last_num;
-	nwam_wlan_t nwamd_wifi_scan_curr[NWAMD_MAX_NUM_WLANS];
-	uint_t nwamd_wifi_scan_curr_num;
-	boolean_t nwamd_wifi_scan_changed;
-	uint32_t nwamd_wifi_scan_last_time;
+	uint_t nwamd_wifi_sres_num;
+	nwam_wlan_t *nwamd_wifi_sres;
 } nwamd_wifi_scan_t;
 
 typedef struct nwamd_link {
 	pthread_mutex_t nwamd_link_wifi_mutex;
 	pthread_t nwamd_link_wifi_scan_thread;
 	pthread_t nwamd_link_wifi_monitor_thread;
-	char nwamd_link_wifi_essid[DLADM_STRSIZE];
-	char nwamd_link_wifi_bssid[DLADM_STRSIZE];
-	char nwamd_link_wifi_keyname[DLADM_STRSIZE];
-	char nwamd_link_wifi_signal_strength[DLADM_STRSIZE];
-	boolean_t nwamd_link_wifi_add_to_known_wlans;
-	boolean_t nwamd_link_wifi_connected;
-	uint32_t nwamd_link_wifi_security_mode;
+	nwam_wlan_t nwamd_link_wifi_wlan;
 	dladm_wlan_key_t *nwamd_link_wifi_key;
+	dladm_wlan_eap_t *nwamd_link_wifi_eap;
 	nwamd_wifi_scan_t nwamd_link_wifi_scan;
-	uint64_t nwamd_link_wifi_priority;
-	boolean_t nwamd_link_wifi_autoconf;
 	uint32_t nwamd_link_id;
 	uint32_t nwamd_link_media;
 	uint64_t nwamd_link_flags;
@@ -159,12 +141,6 @@ struct nwamd_dhcp_thread_arg {
 	volatile uint32_t *guard;
 };
 
-#define	WIRELESS_SCAN_INTERVAL_DEFAULT		120
-#define	WIRELESS_SCAN_INTERVAL_MIN		30
-#define	WIRELESS_SCAN_REQUESTED_INTERVAL_MIN	10
-#define	WIRELESS_MONITOR_SIGNAL_INTERVAL	10
-#define	WIRELESS_RETRY_INTERVAL			30
-#define	WIRELESS_SCAN_LEVEL_DEFAULT		DLADM_WLAN_STRENGTH_WEAK
 #define	NWAMD_DHCP_RETRIES			5
 #define	NWAMD_DHCP_RETRY_WAIT_TIME		10
 #define	NWAMD_READONLY_RETRY_INTERVAL		5
@@ -181,18 +157,12 @@ extern void nwamd_log_ncus(void);
 extern void nwamd_ncu_free(nwamd_ncu_t *);
 
 /* WLAN functions */
-extern void nwamd_set_selected_connected(nwamd_ncu_t *, boolean_t, boolean_t);
-extern nwam_error_t nwamd_wlan_select(const char *, const char *, const char *,
-    uint32_t, boolean_t);
-extern nwam_error_t nwamd_wlan_set_key(const char *, const char *, const char *,
-    uint32_t, uint_t, char *);
+extern nwam_error_t nwamd_wlan_select(const char *, const nwam_wlan_t *,
+    const dladm_wlan_key_t *, const dladm_wlan_eap_t *);
 extern nwam_error_t nwamd_wlan_scan(const char *);
+extern nwam_error_t nwamd_wlan_parse_scanres(const char *);
 extern void nwamd_wlan_connect(const char *);
 extern boolean_t nwamd_wlan_connected(nwamd_object_t);
-extern void nwamd_wlan_monitor_signal(const char *);
-extern void nwamd_ncu_create_periodic_scan_event(nwamd_object_t);
-extern dladm_wlan_key_t *nwamd_wlan_get_key_named(const char *, uint32_t);
-extern void nwamd_set_key_name(const char *, const char *, char *, size_t);
 
 /* Link functions */
 extern link_state_t nwamd_get_link_state(const char *);

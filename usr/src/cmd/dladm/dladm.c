@@ -20,6 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <stdio.h>
@@ -40,7 +41,6 @@
 #include <unistd.h>
 #include <priv.h>
 #include <limits.h>
-#include <termios.h>
 #include <pwd.h>
 #include <auth_attr.h>
 #include <auth_list.h>
@@ -51,6 +51,7 @@
 #include <libdllink.h>
 #include <libdlstat.h>
 #include <libdlaggr.h>
+#include <secobj.h>
 #include <libdlwlan.h>
 #include <libdlvlan.h>
 #include <libdlvnic.h>
@@ -83,13 +84,6 @@
 #define	SMF_UPGRADEDATALINK_FILE	"/var/svc/profile/upgrade_datalink"
 #define	SMF_DLADM_UPGRADE_MSG		" # added by dladm(1M)"
 #define	DLADM_DEFAULT_COL	80
-
-/*
- * used by the wifi show-* commands to set up ofmt_field_t structures.
- */
-#define	WIFI_CMD_SCAN		0x00000001
-#define	WIFI_CMD_SHOW		0x00000002
-#define	WIFI_CMD_ALL		(WIFI_CMD_SCAN | WIFI_CMD_SHOW)
 
 /* No larger than pktsum_t */
 typedef struct brsum_s {
@@ -191,7 +185,6 @@ static ofmt_cb_t print_default_cb, print_link_stats_cb, print_linkprop_cb;
 static ofmt_cb_t print_lacp_cb, print_phys_one_mac_cb;
 static ofmt_cb_t print_xaggr_cb, print_aggr_stats_cb;
 static ofmt_cb_t print_phys_one_hwgrp_cb, print_wlan_attr_cb;
-static ofmt_cb_t print_wifi_status_cb, print_link_attr_cb;
 static void dladm_ofmt_check(ofmt_status_t, boolean_t, ofmt_handle_t);
 
 typedef void cmdfunc_t(int, char **, const char *);
@@ -202,7 +195,7 @@ static cmdfunc_t do_modify_aggr, do_show_aggr, do_up_aggr;
 static cmdfunc_t do_scan_wifi, do_connect_wifi, do_disconnect_wifi;
 static cmdfunc_t do_show_linkprop, do_set_linkprop, do_reset_linkprop;
 static cmdfunc_t do_create_secobj, do_delete_secobj, do_show_secobj;
-static cmdfunc_t do_init_linkprop, do_init_secobj;
+static cmdfunc_t do_init_linkprop;
 static cmdfunc_t do_create_vlan, do_delete_vlan, do_up_vlan, do_show_vlan;
 static cmdfunc_t do_rename_link, do_delete_phys, do_init_phys;
 static cmdfunc_t do_show_linkmap;
@@ -288,17 +281,19 @@ static cmd_t	cmds[] = {
 	    "[<link>]\n"						},
 	{ "up-aggr",		do_up_aggr,	NULL			},
 	{ "scan-wifi",		do_scan_wifi,
-	    "    scan-wifi        [-p] [-o <field>,...] [<link>]"	},
+	    "    scan-wifi        <link>"	},
 	{ "connect-wifi",	do_connect_wifi,
-	    "    connect-wifi     [-e <essid>] [-i <bssid>] [-k <key>,...] "
-	    "[-s wep|wpa]\n"
-	    "\t\t     [-a open|shared] [-b bss|ibss] [-c] [-m a|b|g] "
-	    "[-T <time>]\n"
-	    "\t\t     [<link>]"						},
+	    "    connect-wifi\t[-e <essid>] [-k <secobj_name>,...]\n"
+	    "\t\t\t[-b <bssid>] [-i ESS|IBSS]\n"
+	    "\t\t\t[-U <identity>] [-N <anon_identity>]\n"
+	    "\t\t\t[-A <CA_Cert_filename>)]\n"
+	    "\t\t\t[-C <Client_Cert_filename>]\n"
+	    "\t\t\t[-K <Private_Key_filename>]\n"
+	    "\t\t\t[<link>]"						},
 	{ "disconnect-wifi",	do_disconnect_wifi,
 	    "    disconnect-wifi  [-a] [<link>]"			},
 	{ "show-wifi",		do_show_wifi,
-	    "    show-wifi        [-p] [-o <field>,...] [<link>]\n"	},
+	    "    show-wifi        [<link>]\n"	},
 	{ "set-linkprop",	do_set_linkprop,
 	    "    set-linkprop     [-t] -p <prop>=<value>[,...] <name>"	},
 	{ "reset-linkprop",	do_reset_linkprop,
@@ -309,13 +304,13 @@ static cmd_t	cmds[] = {
 	{ "show-ether",		do_show_ether,
 	    "    show-ether       [-px][-o <field>,...] <link>\n"	},
 	{ "create-secobj",	do_create_secobj,
-	    "    create-secobj    [-t] [-f <file>] -c <class> <secobj>"	},
+	    "    create-secobj    [-t] -c <class> <secobj>\n"
+	    "\t\t     [-R <root-dir>] [-f <file>]"			},
 	{ "delete-secobj",	do_delete_secobj,
-	    "    delete-secobj    [-t] <secobj>[,...]"			},
+	    "    delete-secobj    [-t] [-R <root-dir>] <secobj>[,...]"	},
 	{ "show-secobj",	do_show_secobj,
-	    "    show-secobj      [-pP] [-o <field>,...] [<secobj>,...]\n" },
+	    "    show-secobj      [-t] [-p] [-o <field>,...] [<secobj>,...]\n"},
 	{ "init-linkprop",	do_init_linkprop,	NULL		},
-	{ "init-secobj",	do_init_secobj,		NULL		},
 	{ "create-vlan", 	do_create_vlan,
 	    "    create-vlan      [-ft] -l <link> -v <vid> [link]"	},
 	{ "delete-vlan", 	do_delete_vlan,
@@ -337,8 +332,7 @@ static cmd_t	cmds[] = {
 	{ "delete-phys",	do_delete_phys,
 	    "    delete-phys      <link>"				},
 	{ "show-phys",		do_show_phys,
-	    "    show-phys        [-m | -H | -P] [[-p] [-o <field>[,...]] "
-	    "[<link>]\n"						},
+	    "    show-phys        [-pP] [-o <field>,..] [-H] [<link>]\n"},
 	{ "init-phys",		do_init_phys,		NULL		},
 	{ "show-linkmap",	do_show_linkmap,	NULL		},
 	{ "create-vnic",	do_create_vnic,
@@ -482,13 +476,14 @@ static const struct option wifi_longopts[] = {
 	{"parseable",	no_argument,		0, 'p'  },
 	{"output",	required_argument,	0, 'o'  },
 	{"essid",	required_argument,	0, 'e'  },
-	{"bsstype",	required_argument,	0, 'b'  },
-	{"mode",	required_argument,	0, 'm'  },
+	{"bssid",	required_argument,	0, 'b'  },
+	{"bsstype",	required_argument,	0, 'i'  },
 	{"key",		required_argument,	0, 'k'  },
-	{"sec",		required_argument,	0, 's'  },
-	{"auth",	required_argument,	0, 'a'  },
-	{"create-ibss",	required_argument,	0, 'c'  },
-	{"timeout",	required_argument,	0, 'T'  },
+	{"username",	required_argument,	0, 'U'  },
+	{"anonymous",	required_argument,	0, 'N'  },
+	{"authority",	required_argument,	0, 'A'  },
+	{"cli_cert",	required_argument,	0, 'C'  },
+	{"priv_key",	required_argument,	0, 'K'  },
 	{"all-links",	no_argument,		0, 'a'  },
 	{"temporary",	no_argument,		0, 't'  },
 	{"root-dir",	required_argument,	0, 'R'  },
@@ -657,6 +652,19 @@ typedef struct link_args_s {
 	char		*link_s_link;
 	pktsum_t	*link_s_psum;
 } link_args_t;
+
+
+static ofmt_field_t scanres_common_fields[] = {
+{ "BSSID",	19, DLADM_WLAN_ATTR_BSSID,	NULL},
+{ "CHAN",	5,  DLADM_WLAN_ATTR_CHANNEL,	NULL},
+{ "STRENGTH",	9,  DLADM_WLAN_ATTR_STRENGTH,	NULL},
+{ "SPEED",	6,  DLADM_WLAN_ATTR_RATES,	NULL},
+{ "ESSID",	32, DLADM_WLAN_ATTR_ESSID,	NULL},
+{ "SECMODE",	1,  DLADM_WLAN_ATTR_IEDETAIL,	NULL},
+{ NULL,		0,  0,				NULL}};
+
+static const char *scanres_print_fields =
+	"bssid,chan,strength,speed,essid,secmode";
 
 /*
  * buffer used by print functions for show-{link,phys,vlan} commands.
@@ -896,39 +904,10 @@ static const ofmt_field_t vlan_fields[] = {
 ;
 
 /*
- * structures common to 'dladm scan-wifi' and 'dladm show-wifi'
- * callback will be determined in parse_wifi_fields.
+ * global variable for 'dladm scan-wifi' and 'dladm connect-wifi'
+ * signal handler
  */
-static ofmt_field_t wifi_common_fields[] = {
-{ "LINK",	11, 0,				NULL},
-{ "ESSID",	20, DLADM_WLAN_ATTR_ESSID,	NULL},
-{ "BSSID",	18, DLADM_WLAN_ATTR_BSSID,	NULL},
-{ "IBSSID",	18, DLADM_WLAN_ATTR_BSSID,	NULL},
-{ "MODE",	7,  DLADM_WLAN_ATTR_MODE,	NULL},
-{ "SPEED",	7,  DLADM_WLAN_ATTR_SPEED,	NULL},
-{ "BSSTYPE",	9,  DLADM_WLAN_ATTR_BSSTYPE,	NULL},
-{ "SEC",	7,  DLADM_WLAN_ATTR_SECMODE,	NULL},
-{ "STRENGTH",	11, DLADM_WLAN_ATTR_STRENGTH,	NULL},
-{ NULL,		0,  0,				NULL}};
-
-/*
- * the 'show-wifi' command supports all the fields in wifi_common_fields
- * plus the AUTH and STATUS fields.
- */
-static ofmt_field_t wifi_show_fields[A_CNT(wifi_common_fields) + 2] = {
-{ "AUTH",	9,  DLADM_WLAN_ATTR_AUTH,	NULL},
-{ "STATUS",	18, DLADM_WLAN_LINKATTR_STATUS,	print_wifi_status_cb},
-/* copy wifi_common_fields here */
-};
-
-static char *all_scan_wifi_fields =
-	"link,essid,bssid,sec,strength,mode,speed,bsstype";
-static char *all_show_wifi_fields =
-	"link,status,essid,sec,strength,mode,speed,auth,bssid,bsstype";
-static char *def_scan_wifi_fields =
-	"link,essid,bssid,sec,strength,mode,speed";
-static char *def_show_wifi_fields =
-	"link,status,essid,sec,strength,mode,speed";
+static datalink_id_t	sigh_linkid;
 
 /*
  * structures for 'dladm show-linkprop'
@@ -985,9 +964,9 @@ typedef struct linkprop_args_s {
  * structures for 'dladm show-secobj'
  */
 typedef struct secobj_fields_buf_s {
-	char			ss_obj_name[DLADM_SECOBJ_VAL_MAX];
+	char			ss_obj_name[DLADM_SECOBJ_NAME_MAX];
 	char			ss_class[20];
-	char			ss_val[30];
+	char			ss_val[DLADM_SECOBJ_VAL_MAX];
 } secobj_fields_buf_t;
 
 static const ofmt_field_t secobj_fields[] = {
@@ -1426,7 +1405,6 @@ static ofmt_field_t bridge_trill_fields[] = {
 { NULL,		0, 0, NULL}};
 
 static char *progname;
-static sig_atomic_t signalled;
 
 /*
  * Handle to libdladm.  Opened in main() before the sub-command
@@ -2913,6 +2891,8 @@ show_link_stats(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 	pktsum_t		stats, diff_stats;
 	dladm_phys_attr_t	dpa;
 	link_args_t		largs;
+	uint32_t		media;
+	struct wpa_ctrl		*ctrl_conn = NULL;
 
 	if (state->ls_firstonly) {
 		if (state->ls_donefirst)
@@ -2922,10 +2902,9 @@ show_link_stats(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 		bzero(&state->ls_prevstats, sizeof (state->ls_prevstats));
 	}
 
-	if (dladm_datalink_id2info(dh, linkid, NULL, &class, NULL, link,
-	    DLPI_LINKNAME_MAX) != DLADM_STATUS_OK) {
+	if (dladm_datalink_id2info(dh, linkid, NULL, &class, &media, link,
+	    DLPI_LINKNAME_MAX) != DLADM_STATUS_OK)
 		return (DLADM_WALK_CONTINUE);
-	}
 
 	if (class == DATALINK_CLASS_PHYS) {
 		if (dladm_phys_info(dh, linkid, &dpa, DLADM_OPT_ACTIVE) !=
@@ -2936,6 +2915,16 @@ show_link_stats(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 			get_mac_stats(dpa.dp_dev, &stats);
 		else
 			get_link_stats(link, &stats);
+
+		if (media == DL_WIFI && !state->ls_firstonly) {
+			dladm_status_t status;
+			status = dladm_wlan_validate(dh, linkid, &ctrl_conn,
+			    NULL);
+			if (status != DLADM_STATUS_OK) {
+				wpa_ctrl_close(ctrl_conn);
+				ctrl_conn = NULL;
+			}
+		}
 	} else {
 		get_link_stats(link, &stats);
 	}
@@ -2944,6 +2933,12 @@ show_link_stats(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 	largs.link_s_link = link;
 	largs.link_s_psum = &diff_stats;
 	ofmt_print(state->ls_ofmt, &largs);
+
+	if (ctrl_conn != NULL) {
+		char *mib_cmd[] = {"MIB"};
+		(void) wpa_request(ctrl_conn, 1, mib_cmd);
+		wpa_ctrl_close(ctrl_conn);
+	}
 
 	state->ls_prevstats = stats;
 	return (DLADM_WALK_CONTINUE);
@@ -5906,101 +5901,38 @@ get_linkduplex(const char *name, boolean_t islink, char *buf)
 	return (dladm_linkduplex2str(linkduplex, buf));
 }
 
-static int
-parse_wifi_fields(char *str, ofmt_handle_t *ofmt, uint_t cmdtype,
-    boolean_t parsable)
-{
-	ofmt_field_t	*template, *of;
-	ofmt_cb_t	*fn;
-	ofmt_status_t	oferr;
-
-	if (cmdtype == WIFI_CMD_SCAN) {
-		template = wifi_common_fields;
-		if (str == NULL)
-			str = def_scan_wifi_fields;
-		if (strcasecmp(str, "all") == 0)
-			str = all_scan_wifi_fields;
-		fn = print_wlan_attr_cb;
-	} else if (cmdtype == WIFI_CMD_SHOW) {
-		bcopy(wifi_common_fields, &wifi_show_fields[2],
-		    sizeof (wifi_common_fields));
-		template = wifi_show_fields;
-		if (str == NULL)
-			str = def_show_wifi_fields;
-		if (strcasecmp(str, "all") == 0)
-			str = all_show_wifi_fields;
-		fn = print_link_attr_cb;
-	} else {
-		return (-1);
-	}
-
-	for (of = template; of->of_name != NULL; of++) {
-		if (of->of_cb == NULL)
-			of->of_cb = fn;
-	}
-
-	oferr = ofmt_open(str, template, (parsable ? OFMT_PARSABLE : 0),
-	    0, ofmt);
-	dladm_ofmt_check(oferr, parsable, *ofmt);
-	return (0);
-}
-
-typedef struct print_wifi_state {
-	char		*ws_link;
-	boolean_t	ws_parsable;
-	boolean_t	ws_header;
-	ofmt_handle_t	ws_ofmt;
-} print_wifi_state_t;
-
-typedef struct  wlan_scan_args_s {
-	print_wifi_state_t	*ws_state;
-	void			*ws_attr;
-} wlan_scan_args_t;
-
 static boolean_t
+/* LINTED E_FUNC_ARG_UNUSED */
 print_wlan_attr_cb(ofmt_arg_t *ofarg, char *buf, uint_t bufsize)
 {
-	wlan_scan_args_t	*w = ofarg->ofmt_cbarg;
-	print_wifi_state_t	*statep = w->ws_state;
-	dladm_wlan_attr_t	*attrp = w->ws_attr;
-	char			tmpbuf[DLADM_STRSIZE];
-
-	if (ofarg->ofmt_id == 0) {
-		(void) strlcpy(buf, (char *)statep->ws_link, bufsize);
-		return (B_TRUE);
-	}
+	dladm_wlan_attr_t *attrp = ofarg->ofmt_cbarg;
 
 	if ((ofarg->ofmt_id & attrp->wa_valid) == 0)
 		return (B_TRUE);
 
 	switch (ofarg->ofmt_id) {
 	case DLADM_WLAN_ATTR_ESSID:
-		(void) dladm_wlan_essid2str(&attrp->wa_essid, tmpbuf);
+		(void) memcpy(buf, attrp->wa_essid.we_bytes,
+		    DLADM_WLAN_MAX_ESSID_LEN);
 		break;
 	case DLADM_WLAN_ATTR_BSSID:
-		(void) dladm_wlan_bssid2str(&attrp->wa_bssid, tmpbuf);
-		break;
-	case DLADM_WLAN_ATTR_SECMODE:
-		(void) dladm_wlan_secmode2str(&attrp->wa_secmode, tmpbuf);
+		(void) dladm_wlan_bssid2str(attrp->wa_bssid.wb_bytes, buf);
 		break;
 	case DLADM_WLAN_ATTR_STRENGTH:
-		(void) dladm_wlan_strength2str(&attrp->wa_strength, tmpbuf);
+		(void) dladm_wlan_strength2str(attrp->wa_strength, buf);
 		break;
-	case DLADM_WLAN_ATTR_MODE:
-		(void) dladm_wlan_mode2str(&attrp->wa_mode, tmpbuf);
+	case DLADM_WLAN_ATTR_IEDETAIL:
+		(void) strlcpy(buf, attrp->wa_ietxt, sizeof (attrp->wa_ietxt));
 		break;
-	case DLADM_WLAN_ATTR_SPEED:
-		(void) dladm_wlan_speed2str(&attrp->wa_speed, tmpbuf);
-		(void) strlcat(tmpbuf, "Mb", sizeof (tmpbuf));
+	case DLADM_WLAN_ATTR_RATES:
+		(void) dladm_wlan_rate2str(attrp->wa_rates.wr_rates[0], buf);
 		break;
-	case DLADM_WLAN_ATTR_AUTH:
-		(void) dladm_wlan_auth2str(&attrp->wa_auth, tmpbuf);
+	case DLADM_WLAN_ATTR_CHANNEL:
+		(void) dladm_wlan_freq2channel(attrp->wa_freq, buf);
 		break;
-	case DLADM_WLAN_ATTR_BSSTYPE:
-		(void) dladm_wlan_bsstype2str(&attrp->wa_bsstype, tmpbuf);
+	default:
 		break;
 	}
-	(void) strlcpy(buf, tmpbuf, bufsize);
 
 	return (B_TRUE);
 }
@@ -6008,165 +5940,166 @@ print_wlan_attr_cb(ofmt_arg_t *ofarg, char *buf, uint_t bufsize)
 static boolean_t
 print_scan_results(void *arg, dladm_wlan_attr_t *attrp)
 {
-	print_wifi_state_t	*statep = arg;
-	wlan_scan_args_t	warg;
-
-	bzero(&warg, sizeof (warg));
-	warg.ws_state = statep;
-	warg.ws_attr = attrp;
-	ofmt_print(statep->ws_ofmt, &warg);
+	ofmt_print(arg, attrp);
 	return (B_TRUE);
-}
-
-static int
-scan_wifi(dladm_handle_t dh, datalink_id_t linkid, void *arg)
-{
-	print_wifi_state_t	*statep = arg;
-	dladm_status_t		status;
-	char			link[MAXLINKNAMELEN];
-
-	if ((status = dladm_datalink_id2info(dh, linkid, NULL, NULL, NULL, link,
-	    sizeof (link))) != DLADM_STATUS_OK) {
-		return (DLADM_WALK_CONTINUE);
-	}
-
-	statep->ws_link = link;
-	status = dladm_wlan_scan(dh, linkid, statep, print_scan_results);
-	if (status != DLADM_STATUS_OK)
-		die_dlerr(status, "cannot scan link '%s'", statep->ws_link);
-
-	return (DLADM_WALK_CONTINUE);
-}
-
-static boolean_t
-print_wifi_status_cb(ofmt_arg_t *ofarg, char *buf, uint_t bufsize)
-{
-	static char		tmpbuf[DLADM_STRSIZE];
-	wlan_scan_args_t	*w = ofarg->ofmt_cbarg;
-	dladm_wlan_linkattr_t	*attrp = w->ws_attr;
-
-	if ((ofarg->ofmt_id & attrp->la_valid) != 0) {
-		(void) dladm_wlan_linkstatus2str(&attrp->la_status, tmpbuf);
-		(void) strlcpy(buf, tmpbuf, bufsize);
-	}
-	return (B_TRUE);
-}
-
-static boolean_t
-print_link_attr_cb(ofmt_arg_t *ofarg, char *buf, uint_t bufsize)
-{
-	wlan_scan_args_t	*w = ofarg->ofmt_cbarg, w1;
-	print_wifi_state_t	*statep = w->ws_state;
-	dladm_wlan_linkattr_t	*attrp = w->ws_attr;
-
-	bzero(&w1, sizeof (w1));
-	w1.ws_state = statep;
-	w1.ws_attr = &attrp->la_wlan_attr;
-	ofarg->ofmt_cbarg = &w1;
-	return (print_wlan_attr_cb(ofarg, buf, bufsize));
-}
-
-static int
-show_wifi(dladm_handle_t dh, datalink_id_t linkid, void *arg)
-{
-	print_wifi_state_t	*statep = arg;
-	dladm_wlan_linkattr_t	attr;
-	dladm_status_t		status;
-	char			link[MAXLINKNAMELEN];
-	wlan_scan_args_t	warg;
-
-	if ((status = dladm_datalink_id2info(dh, linkid, NULL, NULL, NULL, link,
-	    sizeof (link))) != DLADM_STATUS_OK) {
-		return (DLADM_WALK_CONTINUE);
-	}
-
-	/* dladm_wlan_get_linkattr() memsets attr with 0 */
-	status = dladm_wlan_get_linkattr(dh, linkid, &attr);
-	if (status != DLADM_STATUS_OK)
-		die_dlerr(status, "cannot get link attributes for %s", link);
-
-	statep->ws_link = link;
-
-	bzero(&warg, sizeof (warg));
-	warg.ws_state = statep;
-	warg.ws_attr = &attr;
-	ofmt_print(statep->ws_ofmt, &warg);
-	return (DLADM_WALK_CONTINUE);
 }
 
 static void
-do_display_wifi(int argc, char **argv, int cmd, const char *use)
+/* LINTED E_FUNC_ARG_UNUSED */
+stop_wpa_s(int sig)
 {
-	int			option;
-	char			*fields_str = NULL;
-	int		(*callback)(dladm_handle_t, datalink_id_t, void *);
-	print_wifi_state_t	state;
-	datalink_id_t		linkid = DATALINK_ALL_LINKID;
-	dladm_status_t		status;
-
-	if (cmd == WIFI_CMD_SCAN)
-		callback = scan_wifi;
-	else if (cmd == WIFI_CMD_SHOW)
-		callback = show_wifi;
-	else
-		return;
-
-	state.ws_parsable = B_FALSE;
-	state.ws_header = B_TRUE;
-	opterr = 0;
-	while ((option = getopt_long(argc, argv, ":o:p",
-	    wifi_longopts, NULL)) != -1) {
-		switch (option) {
-		case 'o':
-			fields_str = optarg;
-			break;
-		case 'p':
-			state.ws_parsable = B_TRUE;
-			break;
-		default:
-			die_opterr(optopt, option, use);
-		}
-	}
-
-	if (state.ws_parsable && fields_str == NULL)
-		die("-p requires -o");
-
-	if (state.ws_parsable && strcasecmp(fields_str, "all") == 0)
-		die("\"-o all\" is invalid with -p");
-
-	if (optind == (argc - 1)) {
-		if ((status = dladm_name2info(handle, argv[optind], &linkid,
-		    NULL, NULL, NULL)) != DLADM_STATUS_OK) {
-			die_dlerr(status, "link %s is not valid", argv[optind]);
-		}
-	} else if (optind != argc) {
-		usage();
-	}
-
-	if (parse_wifi_fields(fields_str, &state.ws_ofmt, cmd,
-	    state.ws_parsable) < 0)
-		die("invalid field(s) specified");
-
-	if (linkid == DATALINK_ALL_LINKID) {
-		(void) dladm_walk_datalink_id(callback, handle, &state,
-		    DATALINK_CLASS_PHYS | DATALINK_CLASS_SIMNET,
-		    DL_WIFI, DLADM_OPT_ACTIVE);
-	} else {
-		(void) (*callback)(handle, linkid, &state);
-	}
-	ofmt_close(state.ws_ofmt);
+	(void) dladm_wlan_disconnect(handle, sigh_linkid);
+	die("Operation Interrupted\n");
 }
 
 static void
 do_scan_wifi(int argc, char **argv, const char *use)
 {
-	do_display_wifi(argc, argv, WIFI_CMD_SCAN, use);
+	int			option;
+	dladm_status_t		status;
+	datalink_id_t 		linkid;
+
+	ofmt_status_t		oferr;
+	ofmt_field_t		*template, *of;
+	ofmt_handle_t		ofmt;
+
+	opterr = 0;
+	while ((option = getopt_long(argc, argv, "", wifi_longopts, NULL)) !=
+	    -1) {
+		switch (option) {
+		default:
+			die_opterr(optopt, option, use);
+			break;
+		}
+	}
+
+	if (optind == (argc - 1)) {
+		if ((status = dladm_name2info(handle, argv[optind], &linkid,
+		    NULL, NULL, NULL)) != DLADM_STATUS_OK)
+			die_dlerr(status, "link %s is not valid", argv[optind]);
+	} else if (optind != argc) {
+		usage();
+	} else {
+		die("Missing linkname argument");
+	}
+
+	sigh_linkid = linkid;
+
+	if (sigset(SIGINT, stop_wpa_s) == SIG_ERR)
+		die("Sigset error");
+
+	(void) printf(gettext("Scanning on link %s ...\n"), argv[optind]);
+	if ((status = dladm_wlan_scan(handle, linkid)) != DLADM_STATUS_OK)
+		die_dlerr(status, "scan-wifi command failed");
+
+	template = scanres_common_fields;
+	for (of = template; of->of_name != NULL; of++) {
+		if (of->of_cb == NULL)
+			of->of_cb = print_wlan_attr_cb;
+	}
+
+	oferr = ofmt_open(scanres_print_fields, template, 0, 0, &ofmt);
+	dladm_ofmt_check(oferr, B_FALSE, ofmt);
+
+	if ((status = dladm_wlan_parse_esslist(handle, linkid, ofmt,
+	    &print_scan_results)) != DLADM_STATUS_OK) {
+		ofmt_close(ofmt);
+		if (status == DLADM_STATUS_NOTFOUND)
+			die("No wireless networks found");
+		else
+			die_dlerr(status, "scan-wifi command failed");
+	}
+	ofmt_close(ofmt);
+}
+
+static int
+/* LINTED E_FUNC_ARG_UNUSED */
+show_wifi(dladm_handle_t dh, datalink_id_t linkid, void* arg)
+{
+	dladm_wlan_linkattr_t  	attr;
+	struct wpa_ctrl		*ctrl_conn = NULL;
+	char			linkname[MAXLINKNAMELEN];
+
+	int 	i;
+	char 	statbuf[16];
+	char	*status_req[] = {"STATUS VERBOSE"};
+
+	(void) memset(linkname, 0, sizeof (linkname));
+
+	if (dladm_wlan_validate(dh, linkid, &ctrl_conn, linkname))
+		return (DLADM_WALK_CONTINUE);
+
+	(void) memset(&attr, 0, sizeof (attr));
+	if (dladm_wlan_get_linkattr(dh, linkid, &attr))
+		goto end;
+
+	(void) printf(gettext("Wifi Link %s \nStatus: %s\n"), linkname,
+	    dladm_wlan_linkstatus2str(attr.la_connected, statbuf));
+
+	if (!attr.la_connected)
+		goto end;
+
+	(void) memset(statbuf, 0, sizeof (statbuf));
+	(void) printf(gettext("Signal Strength: %s\n"),
+	    dladm_wlan_strength2str(attr.la_wlan_attr.wa_strength, statbuf));
+
+	(void) printf(gettext("Link Speed Rates: "));
+	for (i = 0; i < attr.la_wlan_attr.wa_rates.wr_cnt; i++) {
+		(void) memset(statbuf, 0, sizeof (statbuf));
+		(void) printf("%s ",
+		    dladm_wlan_rate2str(attr.la_wlan_attr.wa_rates.wr_rates[i],
+		    statbuf));
+	}
+
+	(void) memset(statbuf, 0, sizeof (statbuf));
+	(void) printf(gettext("\n802.11 Mode: \"%s\"\n"),
+	    dladm_wlan_mode2str(attr.la_wlan_attr.wa_mode, statbuf));
+
+	(void) memset(statbuf, 0, sizeof (statbuf));
+	(void) printf(gettext("802.11 Channel: \"%s\"\n"),
+	    dladm_wlan_freq2channel(attr.la_wlan_attr.wa_freq, statbuf));
+
+end:
+	(void) wpa_request(ctrl_conn, 1, status_req);
+	wpa_ctrl_close(ctrl_conn);
+	return (DLADM_WALK_CONTINUE);
 }
 
 static void
 do_show_wifi(int argc, char **argv, const char *use)
 {
-	do_display_wifi(argc, argv, WIFI_CMD_SHOW, use);
+	int			option;
+	dladm_status_t		status;
+
+	opterr = 0;
+	while ((option = getopt_long(argc, argv, "",
+	    wifi_longopts, NULL)) != -1) {
+		switch (option) {
+		default:
+			die_opterr(optopt, option, use);
+			break;
+		}
+	}
+
+	if (optind == (argc - 1)) {
+		datalink_id_t linkid;
+		uint32_t media;
+		status = dladm_name2info(handle, argv[optind], &linkid,
+		    NULL, NULL, &media);
+		if (status != DLADM_STATUS_OK || media != DL_WIFI)
+			die_dlerr(status, "link %s is not valid", argv[optind]);
+		status = show_wifi(handle, linkid, NULL);
+		if (status != DLADM_WALK_CONTINUE)
+			die_dlerr(status, "show-wifi command failed");
+	} else if (optind != argc) {
+		usage();
+	} else {
+		status = dladm_walk_datalink_id(&show_wifi, handle, NULL,
+		    DATALINK_CLASS_PHYS | DATALINK_CLASS_SIMNET,
+		    DL_WIFI, DLADM_OPT_ACTIVE);
+		if (status != DLADM_STATUS_OK)
+			die_dlerr(status, "show-wifi command failed");
+	}
 }
 
 typedef struct wlan_count_attr {
@@ -6186,177 +6119,154 @@ do_count_wlan(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 	return (DLADM_WALK_CONTINUE);
 }
 
-static int
-parse_wlan_keys(char *str, dladm_wlan_key_t **keys, uint_t *key_countp)
+static uint_t
+parse_wlan_keys(char *str, dladm_wlan_key_t *key, char *crtpw1)
 {
-	uint_t			i;
-	dladm_wlan_key_t	*wk;
-	int			nfields = 1;
-	char			*field, *token, *lasts = NULL, c;
+	char		*token = NULL;
+	uint_t		keysnum = 0;
 
-	token = str;
-	while ((c = *token++) != NULL) {
-		if (c == ',')
-			nfields++;
-	}
-	token = strdup(str);
+	if (key == NULL || str == NULL || crtpw1 == NULL)
+		return (0);
+
+	token = strtok(str, ",");
 	if (token == NULL)
-		return (-1);
+		return (0);
 
-	wk = malloc(nfields * sizeof (dladm_wlan_key_t));
-	if (wk == NULL)
-		goto fail;
+	(void) strlcpy(key->wk_name, token, DLADM_SECOBJ_NAME_MAX);
 
-	token = str;
-	for (i = 0; i < nfields; i++) {
-		char			*s;
-		dladm_secobj_class_t	class;
-		dladm_status_t		status;
+	if (dladm_get_secobj(handle, key, DLADM_OPT_ACTIVE|DLADM_OPT_PERSIST))
+		return (0);
 
-		field = strtok_r(token, ",", &lasts);
-		token = NULL;
+	keysnum++;
 
-		(void) strlcpy(wk[i].wk_name, field,
-		    DLADM_WLAN_MAX_KEYNAME_LEN);
-
-		wk[i].wk_idx = 1;
-		if ((s = strrchr(wk[i].wk_name, ':')) != NULL) {
-			if (s[1] == '\0' || s[2] != '\0' || !isdigit(s[1]))
-				goto fail;
-
-			wk[i].wk_idx = (uint_t)(s[1] - '0');
-			*s = '\0';
+	token = strtok(NULL, ",");
+	if (token != NULL) {
+		secobj_class_info_t exists1;
+		exists1.sc_name = token;
+		exists1.sc_dladmclass = 0;
+		if (dladm_walk_secobj(handle, &exists1, find_matching_secobj,
+		    DLADM_OPT_ACTIVE | DLADM_OPT_PERSIST))
+			return (keysnum);
+		if (exists1.sc_dladmclass == DLADM_SECOBJ_CLASS_TLS) {
+			(void) strlcpy(crtpw1, token, DLADM_SECOBJ_NAME_MAX);
+			keysnum++;
 		}
-		wk[i].wk_len = DLADM_WLAN_MAX_KEY_LEN;
-
-		status = dladm_get_secobj(handle, wk[i].wk_name, &class,
-		    wk[i].wk_val, &wk[i].wk_len, 0);
-		if (status != DLADM_STATUS_OK) {
-			if (status == DLADM_STATUS_NOTFOUND) {
-				status = dladm_get_secobj(handle, wk[i].wk_name,
-				    &class, wk[i].wk_val, &wk[i].wk_len,
-				    DLADM_OPT_PERSIST);
-			}
-			if (status != DLADM_STATUS_OK)
-				goto fail;
-		}
-		wk[i].wk_class = class;
 	}
-	*keys = wk;
-	*key_countp = i;
-	free(token);
-	return (0);
-fail:
-	free(wk);
-	free(token);
-	return (-1);
+
+	return (keysnum);
 }
 
 static void
 do_connect_wifi(int argc, char **argv, const char *use)
 {
-	int			option;
-	dladm_wlan_attr_t	attr, *attrp;
 	dladm_status_t		status = DLADM_STATUS_OK;
-	int			timeout = DLADM_WLAN_CONNECT_TIMEOUT_DEFAULT;
 	datalink_id_t		linkid = DATALINK_ALL_LINKID;
-	dladm_wlan_key_t	*keys = NULL;
-	uint_t			key_count = 0;
-	uint_t			flags = 0;
-	dladm_wlan_secmode_t	keysecmode = DLADM_WLAN_SECMODE_NONE;
-	char			buf[DLADM_STRSIZE];
+	int			option;
+	uint_t			keynum = 0;
+	dladm_wlan_attr_t	attr, *attrp;
+	dladm_wlan_eap_t	eap_attr, *eap_attrp;
+	dladm_wlan_key_t	key;
+	char 			crtpw[DLADM_SECOBJ_NAME_MAX];
+	int			rc;
 
 	opterr = 0;
 	(void) memset(&attr, 0, sizeof (attr));
-	while ((option = getopt_long(argc, argv, ":e:i:a:m:b:s:k:T:c",
-	    wifi_longopts, NULL)) != -1) {
+	(void) memset(&eap_attr, 0, sizeof (eap_attr));
+	(void) memset(&key, 0, sizeof (key));
+	(void) memset(crtpw, 0, sizeof (crtpw));
+
+	/* TODO: when adhoc mode is supported add channel option */
+
+	while ((option = getopt_long(argc, argv,
+	    ":e:b:i:k:U:N:A:D:C:K:", wifi_longopts, NULL)) != -1) {
 		switch (option) {
 		case 'e':
-			status = dladm_wlan_str2essid(optarg, &attr.wa_essid);
-			if (status != DLADM_STATUS_OK)
+			/* essid */
+			rc = strlcpy((char *)attr.wa_essid.we_bytes, optarg,
+			    DLADM_WLAN_MAX_ESSID_LEN + 1);
+			if (rc < 1 || rc > DLADM_WLAN_MAX_ESSID_LEN)
 				die("invalid ESSID '%s'", optarg);
-
+			if ((attr.wa_essid.we_length =
+			    strnlen((char *)attr.wa_essid.we_bytes,
+			    DLADM_WLAN_MAX_ESSID_LEN + 1)) ==
+			    DLADM_WLAN_MAX_ESSID_LEN + 1)
+				die("invalid ESSID '%s'", optarg);
 			attr.wa_valid |= DLADM_WLAN_ATTR_ESSID;
-			/*
-			 * Try to connect without doing a scan.
-			 */
-			flags |= DLADM_WLAN_CONNECT_NOSCAN;
 			break;
-		case 'i':
-			status = dladm_wlan_str2bssid(optarg, &attr.wa_bssid);
+		case 'b':
+			/* bssid */
+			status = dladm_wlan_str2bssid(optarg,
+			    attr.wa_bssid.wb_bytes);
 			if (status != DLADM_STATUS_OK)
 				die("invalid BSSID %s", optarg);
 
 			attr.wa_valid |= DLADM_WLAN_ATTR_BSSID;
 			break;
-		case 'a':
-			status = dladm_wlan_str2auth(optarg, &attr.wa_auth);
-			if (status != DLADM_STATUS_OK)
-				die("invalid authentication mode '%s'", optarg);
-
-			attr.wa_valid |= DLADM_WLAN_ATTR_AUTH;
-			break;
-		case 'm':
-			status = dladm_wlan_str2mode(optarg, &attr.wa_mode);
-			if (status != DLADM_STATUS_OK)
-				die("invalid mode '%s'", optarg);
-
-			attr.wa_valid |= DLADM_WLAN_ATTR_MODE;
-			break;
-		case 'b':
+		case 'i':
+			/* bss/ibss */
 			if ((status = dladm_wlan_str2bsstype(optarg,
-			    &attr.wa_bsstype)) != DLADM_STATUS_OK) {
+			    &attr.wa_bsstype)) != DLADM_STATUS_OK)
 				die("invalid bsstype '%s'", optarg);
-			}
 
 			attr.wa_valid |= DLADM_WLAN_ATTR_BSSTYPE;
 			break;
-		case 's':
-			if ((status = dladm_wlan_str2secmode(optarg,
-			    &attr.wa_secmode)) != DLADM_STATUS_OK) {
-				die("invalid security mode '%s'", optarg);
-			}
+		case 'k':
+			/* secobj selection */
+			keynum = parse_wlan_keys(optarg, &key, crtpw);
+			if (!(keynum))
+				die("invalid key '%s'", optarg);
+
+			if (key.wk_class == DLADM_SECOBJ_CLASS_WEP)
+				attr.wa_secmode = DLADM_WLAN_SECMODE_WEP;
+			else if (key.wk_class == DLADM_SECOBJ_CLASS_PSK)
+				attr.wa_secmode = DLADM_WLAN_SECMODE_PSK;
+			else
+				attr.wa_secmode = DLADM_WLAN_SECMODE_EAP;
 
 			attr.wa_valid |= DLADM_WLAN_ATTR_SECMODE;
 			break;
-		case 'k':
-			if (parse_wlan_keys(optarg, &keys, &key_count) < 0)
-				die("invalid key(s) '%s'", optarg);
-
-			if (keys[0].wk_class == DLADM_SECOBJ_CLASS_WEP)
-				keysecmode = DLADM_WLAN_SECMODE_WEP;
-			else
-				keysecmode = DLADM_WLAN_SECMODE_WPA;
+		case 'U':
+			/* eap user identity */
+			status = dladm_str2identity(optarg, eap_attr.eap_user);
+			if (status != DLADM_STATUS_OK)
+				die("invalid user identity '%s'", optarg);
+			eap_attr.eap_valid |= DLADM_EAP_ATTR_USER;
 			break;
-		case 'T':
-			if (strcasecmp(optarg, "forever") == 0) {
-				timeout = -1;
-				break;
-			}
-			if (!str2int(optarg, &timeout) || timeout < 0)
-				die("invalid timeout value '%s'", optarg);
+		case 'N':
+			/*
+			 * eap anonymous identity
+			 * currently only for eap-ttls
+			 */
+			status = dladm_str2identity(optarg, eap_attr.eap_anon);
+			if (status != DLADM_STATUS_OK)
+				die("invalid anonymous identity '%s'", optarg);
+			eap_attr.eap_valid |= DLADM_EAP_ATTR_ANON;
 			break;
-		case 'c':
-			flags |= DLADM_WLAN_CONNECT_CREATEIBSS;
-			flags |= DLADM_WLAN_CONNECT_CREATEIBSS;
+		case 'A':
+			/* certifice authority filename */
+			if (dladm_str2crtname(optarg,
+			    eap_attr.eap_ca_cert))
+				die("invalid filename for '%s'", optarg);
+			eap_attr.eap_valid |= DLADM_EAP_ATTR_CACERT;
+			break;
+		case 'C':
+			/* client cert filename */
+			if (dladm_str2crtname(optarg,
+			    eap_attr.eap_cli_cert))
+				die("invalid filename for '%s'", optarg);
+			eap_attr.eap_valid |= DLADM_EAP_ATTR_CLICERT;
+			break;
+		case 'K':
+			/* client private key filename */
+			if (dladm_str2crtname(optarg,
+			    eap_attr.eap_priv))
+				die("invalid filename for '%s'", optarg);
+			eap_attr.eap_valid |= DLADM_EAP_ATTR_PRIV;
 			break;
 		default:
 			die_opterr(optopt, option, use);
 			break;
 		}
-	}
-
-	if (keysecmode == DLADM_WLAN_SECMODE_NONE) {
-		if ((attr.wa_valid & DLADM_WLAN_ATTR_SECMODE) != 0) {
-			die("key required for security mode '%s'",
-			    dladm_wlan_secmode2str(&attr.wa_secmode, buf));
-		}
-	} else {
-		if ((attr.wa_valid & DLADM_WLAN_ATTR_SECMODE) != 0 &&
-		    attr.wa_secmode != keysecmode)
-			die("incompatible -s and -k options");
-		attr.wa_valid |= DLADM_WLAN_ATTR_SECMODE;
-		attr.wa_secmode = keysecmode;
 	}
 
 	if (optind == (argc - 1)) {
@@ -6376,37 +6286,98 @@ do_connect_wifi(int argc, char **argv, const char *use)
 		(void) dladm_walk_datalink_id(do_count_wlan, handle, &wcattr,
 		    DATALINK_CLASS_PHYS | DATALINK_CLASS_SIMNET,
 		    DL_WIFI, DLADM_OPT_ACTIVE);
-		if (wcattr.wc_count == 0) {
+		if (wcattr.wc_count == 0)
 			die("no wifi links are available");
-		} else if (wcattr.wc_count > 1) {
+		else if (wcattr.wc_count > 1)
 			die("link name is required when more than one wifi "
 			    "link is available");
-		}
 		linkid = wcattr.wc_linkid;
 	}
-	attrp = (attr.wa_valid == 0) ? NULL : &attr;
-again:
-	if ((status = dladm_wlan_connect(handle, linkid, attrp, timeout, keys,
-	    key_count, flags)) != DLADM_STATUS_OK) {
-		if ((flags & DLADM_WLAN_CONNECT_NOSCAN) != 0) {
-			/*
-			 * Try again with scanning and filtering.
-			 */
-			flags &= ~DLADM_WLAN_CONNECT_NOSCAN;
-			goto again;
-		}
 
-		if (status == DLADM_STATUS_NOTFOUND) {
-			if (attr.wa_valid == 0) {
-				die("no wifi networks are available");
-			} else {
-				die("no wifi networks with the specified "
-				    "criteria are available");
+	if ((attr.wa_valid & DLADM_WLAN_ATTR_SECMODE) &&
+	    !(attr.wa_valid & DLADM_WLAN_ATTR_ESSID))
+		die("ESSID is mandatory for non-plaintext networks");
+
+	if ((attr.wa_valid & DLADM_WLAN_ATTR_SECMODE) &&
+	    key.wk_class == DLADM_SECOBJ_CLASS_TLS) {
+		if (!(eap_attr.eap_valid & DLADM_EAP_ATTR_USER))
+			die("provide username (-U) for EAP-TLS");
+		if (!(eap_attr.eap_valid & DLADM_EAP_ATTR_PRIV))
+			die("client private key required for EAP-TLS");
+		if (key.wk_engine) {
+			status = dladm_eap_import(handle, eap_attr.eap_priv,
+			    key.wk_name, key.wk_name, key.wk_class);
+			if (status)
+				die_dlerr(status, "Failed to Import Key/Cert");
+
+			if (keynum > 1 &&
+			    (eap_attr.eap_valid & DLADM_EAP_ATTR_CLICERT)) {
+				status = dladm_eap_import(handle,
+				    eap_attr.eap_cli_cert, key.wk_name,
+				    crtpw, key.wk_class);
+				keynum--;
 			}
+			if (status)
+				die_dlerr(status, "Failed to Import Key/Cert");
 		}
-		die_dlerr(status, "cannot connect");
+	} else if ((attr.wa_valid & DLADM_WLAN_ATTR_SECMODE) &&
+	    (key.wk_class == DLADM_SECOBJ_CLASS_TTLS ||
+	    key.wk_class == DLADM_SECOBJ_CLASS_PEAP)) {
+		if (!(eap_attr.eap_valid & DLADM_EAP_ATTR_USER) &&
+		    !(eap_attr.eap_valid & DLADM_EAP_ATTR_ANON))
+			die("provide username (-U) or anonymous identity (-N)"
+			" for EAP-TTLS or EAP-PEAP");
 	}
-	free(keys);
+
+	if (attr.wa_valid & DLADM_WLAN_ATTR_BSSTYPE) {
+		if (attr.wa_secmode != DLADM_WLAN_SECMODE_NONE &&
+		    attr.wa_secmode != DLADM_WLAN_SECMODE_PSK)
+			die("ibss type supports only PSK or NONE security");
+	}
+
+	if ((key.wk_engine) && attr.wa_secmode != DLADM_WLAN_SECMODE_EAP)
+		die("PKCS#11 keystores can be used only in WPA-EAP mode");
+
+	attrp = (attr.wa_valid == 0) ? NULL : &attr;
+	eap_attrp = (eap_attr.eap_valid == 0) ? NULL : &eap_attr;
+
+	sigh_linkid = linkid;
+
+	if (sigset(SIGINT, stop_wpa_s) == SIG_ERR)
+		die("Sigset error");
+
+	if ((status = dladm_wlan_connect(handle, linkid, attrp, &key,
+	    eap_attrp)) != DLADM_STATUS_OK) {
+		switch (status) {
+		/*
+		 * we assume wifi params the user had passed are coherent
+		 * with the last scan results. The user will simply get a
+		 * timeout if a matching AP with the specified essid/bssid/sec
+		 * is not found.
+		 * This is not the case in nwam, where the user selects the
+		 * target AP from scan results list
+		 */
+		case DLADM_STATUS_ISCONN:
+			die("wifi link already connected, disconnect first");
+			break;
+		case DLADM_STATUS_BADVAL:
+			die("bad input parameters value");
+			break;
+		case DLADM_STATUS_TIMEDOUT:
+			die_dlerr(status, "connection timeout");
+			break;
+		case DLADM_STATUS_DENIED:
+			die("svc:/network/wpa_supplicant is not enabled "
+			    "or dladm failed to bind to its control interface");
+			break;
+		case DLADM_STATUS_IOERR:
+			die("Cannot initialize Driver Interface");
+			break;
+		default:
+			die_dlerr(status, "cannot connect");
+			break;
+		}
+	}
 }
 
 /* ARGSUSED */
@@ -6416,7 +6387,7 @@ do_all_disconnect_wifi(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 	dladm_status_t	status;
 
 	status = dladm_wlan_disconnect(dh, linkid);
-	if (status != DLADM_STATUS_OK)
+	if (status != DLADM_STATUS_OK && status != DLADM_STATUS_LINKINVAL)
 		warn_dlerr(status, "cannot disconnect link");
 
 	return (DLADM_WALK_CONTINUE);
@@ -6426,9 +6397,9 @@ static void
 do_disconnect_wifi(int argc, char **argv, const char *use)
 {
 	int			option;
-	datalink_id_t		linkid = DATALINK_ALL_LINKID;
+	datalink_id_t		linkid;
 	boolean_t		all_links = B_FALSE;
-	dladm_status_t		status;
+	dladm_status_t		status = DLADM_STATUS_OK;
 	wlan_count_attr_t	wcattr;
 
 	opterr = 0;
@@ -6437,6 +6408,7 @@ do_disconnect_wifi(int argc, char **argv, const char *use)
 		switch (option) {
 		case 'a':
 			all_links = B_TRUE;
+			linkid = DATALINK_ALL_LINKID;
 			break;
 		default:
 			die_opterr(optopt, option, use);
@@ -6444,17 +6416,14 @@ do_disconnect_wifi(int argc, char **argv, const char *use)
 		}
 	}
 
-	if (optind == (argc - 1)) {
-		if ((status = dladm_name2info(handle, argv[optind], &linkid,
-		    NULL, NULL, NULL)) != DLADM_STATUS_OK) {
-			die_dlerr(status, "link %s is not valid", argv[optind]);
-		}
-	} else if (optind != argc) {
-		usage();
-	}
-
-	if (linkid == DATALINK_ALL_LINKID) {
-		if (!all_links) {
+	if (!all_links) {
+		if (optind == (argc - 1)) {
+			if ((status = dladm_name2info(handle, argv[optind], &linkid,
+			    NULL, NULL, NULL)) != DLADM_STATUS_OK) {
+				die_dlerr(status, "link %s is not valid", argv[optind]);
+			}
+			status = dladm_wlan_disconnect(handle, linkid);
+		} else if (argc == 0) {
 			wcattr.wc_linkid = linkid;
 			wcattr.wc_count = 0;
 			(void) dladm_walk_datalink_id(do_count_wlan, handle,
@@ -6468,15 +6437,16 @@ do_disconnect_wifi(int argc, char **argv, const char *use)
 				    "one wifi link is available");
 			}
 			linkid = wcattr.wc_linkid;
-		} else {
-			(void) dladm_walk_datalink_id(do_all_disconnect_wifi,
-			    handle, NULL,
-			    DATALINK_CLASS_PHYS | DATALINK_CLASS_SIMNET,
-			    DL_WIFI, DLADM_OPT_ACTIVE);
-			return;
+		} else if (optind != argc) {
+			usage();
 		}
+	} else {
+		(void) dladm_walk_datalink_id(do_all_disconnect_wifi, handle,
+		    NULL, DATALINK_CLASS_PHYS | DATALINK_CLASS_SIMNET, DL_WIFI,
+		    DLADM_OPT_ACTIVE);
+		return;
 	}
-	status = dladm_wlan_disconnect(handle, linkid);
+
 	if (status != DLADM_STATUS_OK)
 		die_dlerr(status, "cannot disconnect");
 }
@@ -7036,146 +7006,6 @@ do_reset_linkprop(int argc, char **argv, const char *use)
 	set_linkprop(argc, argv, B_TRUE, use);
 }
 
-static int
-convert_secobj(char *buf, uint_t len, uint8_t *obj_val, uint_t *obj_lenp,
-    dladm_secobj_class_t class)
-{
-	int error = 0;
-
-	if (class == DLADM_SECOBJ_CLASS_WPA) {
-		if (len < 8 || len > 63)
-			return (EINVAL);
-		(void) memcpy(obj_val, buf, len);
-		*obj_lenp = len;
-		return (error);
-	}
-
-	if (class == DLADM_SECOBJ_CLASS_WEP) {
-		switch (len) {
-		case 5:			/* ASCII key sizes */
-		case 13:
-			(void) memcpy(obj_val, buf, len);
-			*obj_lenp = len;
-			break;
-		case 10:		/* Hex key sizes, not preceded by 0x */
-		case 26:
-			error = hexascii_to_octet(buf, len, obj_val, obj_lenp);
-			break;
-		case 12:		/* Hex key sizes, preceded by 0x */
-		case 28:
-			if (strncmp(buf, "0x", 2) != 0)
-				return (EINVAL);
-			error = hexascii_to_octet(buf + 2, len - 2,
-			    obj_val, obj_lenp);
-			break;
-		default:
-			return (EINVAL);
-		}
-		return (error);
-	}
-
-	return (ENOENT);
-}
-
-static void
-defersig(int sig)
-{
-	signalled = sig;
-}
-
-static int
-get_secobj_from_tty(uint_t try, const char *objname, char *buf)
-{
-	uint_t		len = 0;
-	int		c;
-	struct termios	stored, current;
-	void		(*sigfunc)(int);
-
-	/*
-	 * Turn off echo -- but before we do so, defer SIGINT handling
-	 * so that a ^C doesn't leave the terminal corrupted.
-	 */
-	sigfunc = signal(SIGINT, defersig);
-	(void) fflush(stdin);
-	(void) tcgetattr(0, &stored);
-	current = stored;
-	current.c_lflag &= ~(ICANON|ECHO);
-	current.c_cc[VTIME] = 0;
-	current.c_cc[VMIN] = 1;
-	(void) tcsetattr(0, TCSANOW, &current);
-again:
-	if (try == 1)
-		(void) printf(gettext("provide value for '%s': "), objname);
-	else
-		(void) printf(gettext("confirm value for '%s': "), objname);
-
-	(void) fflush(stdout);
-	while (signalled == 0) {
-		c = getchar();
-		if (c == '\n' || c == '\r') {
-			if (len != 0)
-				break;
-			(void) putchar('\n');
-			goto again;
-		}
-
-		buf[len++] = c;
-		if (len >= DLADM_SECOBJ_VAL_MAX - 1)
-			break;
-		(void) putchar('*');
-	}
-
-	(void) putchar('\n');
-	(void) fflush(stdin);
-
-	/*
-	 * Restore terminal setting and handle deferred signals.
-	 */
-	(void) tcsetattr(0, TCSANOW, &stored);
-
-	(void) signal(SIGINT, sigfunc);
-	if (signalled != 0)
-		(void) kill(getpid(), signalled);
-
-	return (len);
-}
-
-static int
-get_secobj_val(char *obj_name, uint8_t *obj_val, uint_t *obj_lenp,
-    dladm_secobj_class_t class, FILE *filep)
-{
-	int		rval;
-	uint_t		len, len2;
-	char		buf[DLADM_SECOBJ_VAL_MAX], buf2[DLADM_SECOBJ_VAL_MAX];
-
-	if (filep == NULL) {
-		len = get_secobj_from_tty(1, obj_name, buf);
-		rval = convert_secobj(buf, len, obj_val, obj_lenp, class);
-		if (rval == 0) {
-			len2 = get_secobj_from_tty(2, obj_name, buf2);
-			if (len != len2 || memcmp(buf, buf2, len) != 0)
-				rval = ENOTSUP;
-		}
-		return (rval);
-	} else {
-		for (;;) {
-			if (fgets(buf, sizeof (buf), filep) == NULL)
-				break;
-			if (isspace(buf[0]))
-				continue;
-
-			len = strlen(buf);
-			if (buf[len - 1] == '\n') {
-				buf[len - 1] = '\0';
-				len--;
-			}
-			break;
-		}
-		(void) fclose(filep);
-	}
-	return (convert_secobj(buf, len, obj_val, obj_lenp, class));
-}
-
 static boolean_t
 check_auth(const char *auth)
 {
@@ -7241,19 +7071,16 @@ audit_secobj(char *auth, char *class, char *obj,
 static void
 do_create_secobj(int argc, char **argv, const char *use)
 {
-	int			option, rval;
+	int			option;
 	FILE			*filep = NULL;
-	char			*obj_name = NULL;
-	char			*class_name = NULL;
-	uint8_t			obj_val[DLADM_SECOBJ_VAL_MAX];
-	uint_t			obj_len;
 	boolean_t		success, temp = B_FALSE;
-	dladm_status_t		status;
-	dladm_secobj_class_t	class = -1;
+	dladm_status_t		status = DLADM_STATUS_OK;
+	dladm_wlan_key_t	key_data;
 	uid_t			euid;
+	char			classtmp[DLADM_STRSIZE];
 
 	opterr = 0;
-	(void) memset(obj_val, 0, DLADM_SECOBJ_VAL_MAX);
+	(void) memset(&key_data, 0, sizeof (dladm_wlan_key_t));
 	while ((option = getopt_long(argc, argv, ":f:c:R:t",
 	    wifi_longopts, NULL)) != -1) {
 		switch (option) {
@@ -7268,11 +7095,12 @@ do_create_secobj(int argc, char **argv, const char *use)
 			(void) seteuid(euid);
 			break;
 		case 'c':
-			class_name = optarg;
-			status = dladm_str2secobjclass(optarg, &class);
+			status = dladm_str2secobjclass(optarg,
+			    &key_data.wk_class);
 			if (status != DLADM_STATUS_OK) {
 				die("invalid secure object class '%s', "
-				    "valid values are: wep, wpa", optarg);
+				    "valid values are: [wep|psk|eap-tls|"
+				    "eap-ttls|peap]", optarg);
 			}
 			break;
 		case 't':
@@ -7292,57 +7120,38 @@ do_create_secobj(int argc, char **argv, const char *use)
 	}
 
 	if (optind == (argc - 1))
-		obj_name = argv[optind];
+		(void) strlcpy(key_data.wk_name, argv[optind],
+		    DLADM_SECOBJ_VAL_MAX);
 	else if (optind != argc)
 		usage();
 
-	if (class == -1)
+	if (key_data.wk_class == 0)
 		die("secure object class required");
 
-	if (obj_name == NULL)
+	if (key_data.wk_name[0] == '\0')
 		die("secure object name required");
 
-	if (!dladm_valid_secobj_name(obj_name))
-		die("invalid secure object name '%s'", obj_name);
+	if (!dladm_valid_secobj_name(key_data.wk_name))
+		die("invalid secure object name '%s'", key_data.wk_name);
 
 	success = check_auth(LINK_SEC_AUTH);
-	audit_secobj(LINK_SEC_AUTH, class_name, obj_name, success, B_TRUE);
+	(void) memset(classtmp, 0, sizeof (classtmp));
+	(void) dladm_secobjclass2str(key_data.wk_class, classtmp);
+	audit_secobj(LINK_SEC_AUTH, classtmp, key_data.wk_name, success,
+	    B_TRUE);
 	if (!success)
 		die("authorization '%s' is required", LINK_SEC_AUTH);
 
-	rval = get_secobj_val(obj_name, obj_val, &obj_len, class, filep);
-	if (rval != 0) {
-		switch (rval) {
-		case ENOENT:
-			die("invalid secure object class");
-			break;
-		case EINVAL:
-			die("invalid secure object value");
-			break;
-		case ENOTSUP:
-			die("verification failed");
-			break;
-		default:
-			die("invalid secure object: %s", strerror(rval));
-			break;
-		}
-	}
+	status = dladm_secobj_prompt(&key_data, filep);
+	if (status != DLADM_STATUS_OK)
+		die("invalid secure object: %s", key_data.wk_name);
 
-	status = dladm_set_secobj(handle, obj_name, class, obj_val, obj_len,
-	    DLADM_OPT_CREATE | DLADM_OPT_ACTIVE);
-	if (status != DLADM_STATUS_OK) {
-		die_dlerr(status, "could not create secure object '%s'",
-		    obj_name);
-	}
-	if (temp)
-		return;
-
-	status = dladm_set_secobj(handle, obj_name, class, obj_val, obj_len,
-	    DLADM_OPT_PERSIST);
-	if (status != DLADM_STATUS_OK) {
-		warn_dlerr(status, "could not persistently create secure "
-		    "object '%s'", obj_name);
-	}
+	status = dladm_set_secobj(handle, &key_data, temp ?
+	    (DLADM_OPT_CREATE | DLADM_OPT_ACTIVE) :
+	    (DLADM_OPT_CREATE | DLADM_OPT_ACTIVE | DLADM_OPT_PERSIST));
+	if (status != DLADM_STATUS_OK)
+		die_dlerr(status, "could not create secure object %s",
+		    key_data.wk_name);
 }
 
 static void
@@ -7351,12 +7160,11 @@ do_delete_secobj(int argc, char **argv, const char *use)
 	int		i, option;
 	boolean_t	temp = B_FALSE;
 	boolean_t	success;
-	dladm_status_t	status, pstatus;
+	dladm_status_t	status = DLADM_STATUS_OK;
 	int		nfields = 1;
 	char		*field, *token, *lasts = NULL, c;
 
 	opterr = 0;
-	status = pstatus = DLADM_STATUS_OK;
 	while ((option = getopt_long(argc, argv, ":R:t",
 	    wifi_longopts, NULL)) != -1) {
 		switch (option) {
@@ -7397,72 +7205,62 @@ do_delete_secobj(int argc, char **argv, const char *use)
 
 		field = strtok_r(token, ",", &lasts);
 		token = NULL;
-		status = dladm_unset_secobj(handle, field, DLADM_OPT_ACTIVE);
-		if (!temp) {
-			pstatus = dladm_unset_secobj(handle, field,
-			    DLADM_OPT_PERSIST);
-		} else {
-			pstatus = DLADM_STATUS_OK;
-		}
-
-		if (status != DLADM_STATUS_OK) {
-			warn_dlerr(status, "could not delete secure object "
-			    "'%s'", field);
-		}
-		if (pstatus != DLADM_STATUS_OK) {
-			warn_dlerr(pstatus, "could not persistently delete "
-			    "secure object '%s'", field);
-		}
+		if ((status = dladm_unset_secobj(handle, field,
+		    DLADM_OPT_ACTIVE)) != DLADM_STATUS_OK)
+			warn_dlerr(status, "could not find or delete "
+			    "temporary secure object '%s'", field);
+		if (!temp && (status = dladm_unset_secobj(handle, field,
+		    DLADM_OPT_PERSIST)) != DLADM_STATUS_OK)
+			warn_dlerr(status, "could not find or delete "
+			    "persistent secure object '%s'", field);
 	}
+
 	free(token);
 
-	if (status != DLADM_STATUS_OK || pstatus != DLADM_STATUS_OK) {
+	if (status != DLADM_STATUS_OK) {
 		dladm_close(handle);
 		exit(EXIT_FAILURE);
 	}
 }
 
 typedef struct show_secobj_state {
-	boolean_t	ss_persist;
+	boolean_t	ss_temp;
 	boolean_t	ss_parsable;
 	boolean_t	ss_header;
 	ofmt_handle_t	ss_ofmt;
 } show_secobj_state_t;
 
-
 static boolean_t
-show_secobj(dladm_handle_t dh, void *arg, const char *obj_name)
+show_secobj(dladm_handle_t dh, void *arg, const char *obj_name,
+/* LINTED E_FUNC_ARG_UNUSED */
+    dladm_secobj_class_t not_used)
 {
-	uint_t			obj_len = DLADM_SECOBJ_VAL_MAX;
-	uint8_t			obj_val[DLADM_SECOBJ_VAL_MAX];
-	char			buf[DLADM_STRSIZE];
 	uint_t			flags = 0;
-	dladm_secobj_class_t	class;
 	show_secobj_state_t	*statep = arg;
 	dladm_status_t		status;
+
+	dladm_wlan_key_t	keyd;
 	secobj_fields_buf_t	sbuf;
 
 	bzero(&sbuf, sizeof (secobj_fields_buf_t));
-	if (statep->ss_persist)
-		flags |= DLADM_OPT_PERSIST;
+	bzero(&keyd, sizeof (dladm_wlan_key_t));
 
-	status = dladm_get_secobj(dh, obj_name, &class, obj_val, &obj_len,
-	    flags);
-	if (status != DLADM_STATUS_OK)
+	if (statep->ss_temp) {
+		flags |= DLADM_OPT_ACTIVE;
+	} else {
+		flags |= DLADM_OPT_PERSIST;
+	}
+
+	(void) memcpy(keyd.wk_name, obj_name, DLADM_SECOBJ_NAME_MAX);
+
+	if ((status = dladm_get_secobj(dh, &keyd, flags)) != DLADM_STATUS_OK)
 		die_dlerr(status, "cannot get secure object '%s'", obj_name);
 
-	(void) snprintf(sbuf.ss_obj_name, sizeof (sbuf.ss_obj_name),
-	    obj_name);
-	(void) dladm_secobjclass2str(class, buf);
-	(void) snprintf(sbuf.ss_class, sizeof (sbuf.ss_class), "%s", buf);
-	if (getuid() == 0) {
-		char	val[DLADM_SECOBJ_VAL_MAX * 2];
-		uint_t	len = sizeof (val);
+	(void) memcpy(sbuf.ss_obj_name, obj_name, DLADM_SECOBJ_NAME_MAX);
+	(void) dladm_secobjclass2str(keyd.wk_class, sbuf.ss_class);
+	if (getuid() == 0)
+		(void) memcpy(sbuf.ss_val, keyd.wk_val, DLADM_SECOBJ_VAL_MAX);
 
-		if (octet_to_hexascii(obj_val, obj_len, val, &len) == 0)
-			(void) snprintf(sbuf.ss_val,
-			    sizeof (sbuf.ss_val), "%s", val);
-	}
 	ofmt_print(statep->ss_ofmt, &sbuf);
 	return (B_TRUE);
 }
@@ -7475,7 +7273,7 @@ do_show_secobj(int argc, char **argv, const char *use)
 	dladm_status_t		status;
 	boolean_t		o_arg = B_FALSE;
 	uint_t			i;
-	uint_t			flags;
+	uint_t			flags = 0;
 	char			*fields_str = NULL;
 	char			*def_fields = "object,class";
 	char			*all_fields = "object,class,value";
@@ -7488,17 +7286,17 @@ do_show_secobj(int argc, char **argv, const char *use)
 	bzero(&state, sizeof (state));
 	state.ss_parsable = B_FALSE;
 	fields_str = def_fields;
-	state.ss_persist = B_FALSE;
+	state.ss_temp = B_FALSE;
 	state.ss_parsable = B_FALSE;
 	state.ss_header = B_TRUE;
-	while ((option = getopt_long(argc, argv, ":pPo:",
+	while ((option = getopt_long(argc, argv, ":pto:R:",
 	    wifi_longopts, NULL)) != -1) {
 		switch (option) {
 		case 'p':
 			state.ss_parsable = B_TRUE;
 			break;
-		case 'P':
-			state.ss_persist = B_TRUE;
+		case 't':
+			state.ss_temp = B_TRUE;
 			break;
 		case 'o':
 			o_arg = B_TRUE;
@@ -7506,6 +7304,13 @@ do_show_secobj(int argc, char **argv, const char *use)
 				fields_str = all_fields;
 			else
 				fields_str = optarg;
+			break;
+		case 'R':
+			status = dladm_set_rootdir(optarg);
+			if (status != DLADM_STATUS_OK) {
+				die_dlerr(status, "invalid directory "
+				    "specified");
+			}
 			break;
 		default:
 			die_opterr(optopt, option, use);
@@ -7525,7 +7330,7 @@ do_show_secobj(int argc, char **argv, const char *use)
 	dladm_ofmt_check(oferr, state.ss_parsable, ofmt);
 	state.ss_ofmt = ofmt;
 
-	flags = state.ss_persist ? DLADM_OPT_PERSIST : 0;
+	flags = state.ss_temp ? DLADM_OPT_ACTIVE : DLADM_OPT_PERSIST;
 
 	if (optind == (argc - 1)) {
 		uint_t obj_fields = 1;
@@ -7543,7 +7348,7 @@ do_show_secobj(int argc, char **argv, const char *use)
 		for (i = 0; i < obj_fields; i++) {
 			field = strtok_r(token, ",", &lasts);
 			token = NULL;
-			if (!show_secobj(handle, &state, field))
+			if (!show_secobj(handle, &state, field, 0))
 				break;
 		}
 		free(token);
@@ -7554,9 +7359,10 @@ do_show_secobj(int argc, char **argv, const char *use)
 
 	status = dladm_walk_secobj(handle, &state, show_secobj, flags);
 
+	ofmt_close(ofmt);
+
 	if (status != DLADM_STATUS_OK)
 		die_dlerr(status, "show-secobj");
-	ofmt_close(ofmt);
 }
 
 /*ARGSUSED*/
@@ -7709,17 +7515,6 @@ show_etherprop(dladm_handle_t dh, datalink_id_t linkid, void *arg)
 cleanup:
 	dladm_ether_info_done(&eattr);
 	return (DLADM_WALK_CONTINUE);
-}
-
-/* ARGSUSED */
-static void
-do_init_secobj(int argc, char **argv, const char *use)
-{
-	dladm_status_t	status;
-
-	status = dladm_init_secobj(handle);
-	if (status != DLADM_STATUS_OK)
-		die_dlerr(status, "secure object initialization failed");
 }
 
 enum bridge_func {

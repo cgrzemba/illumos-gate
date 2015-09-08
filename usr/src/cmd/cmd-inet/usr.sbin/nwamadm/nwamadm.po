@@ -1,0 +1,211 @@
+msgid  "Print this usage message."
+msgstr
+msgid  "enable [-p <profile-type>] [-c <ncu-class>] <object-name>"
+msgstr
+msgid  "Enable the specified profile."
+msgstr
+msgid  "disable [-p <profile-type>] [-c <ncu-class>] <object-name>"
+msgstr
+msgid  "Disable the specified profile."
+msgstr
+msgid  "list [-x] [-p <profile-type>] [-c <ncu-class>] [<object-name>]"
+msgstr
+msgid  "List profiles and their current states."
+msgstr
+msgid  "Display all events."
+msgstr
+msgid  "select-wifi <link-name>"
+msgstr
+msgid  "Make a WLAN selection from WiFi scan results"
+msgstr
+msgid  "AUXILIARY STATE"
+msgstr
+msgid  "cmd_num >= CMD_MIN && cmd_num <= CMD_MAX"
+msgstr
+msgid  "nwamadm.c"
+msgstr
+# msgid  "cmd_num >= CMD_MIN && cmd_num <= CMD_MAX"
+# msgstr
+# msgid  "nwamadm.c"
+# msgstr
+msgid  "usage: <subcommand> <args> ...\n"
+msgstr
+msgid  ": %s\n"
+msgstr
+# msgid  "cmd_num >= CMD_MIN && cmd_num <= CMD_MAX"
+# msgstr
+# msgid  "nwamadm.c"
+# msgstr
+msgid  "usage"
+msgstr
+msgid  "Invalid profile-type: %s"
+msgstr
+msgid  "class"
+msgstr
+msgid  "Invalid ncu-class: %s"
+msgstr
+# msgid  "Invalid ncu-class: %s"
+# msgstr
+msgid  "-x can only be used with 'list'"
+msgstr
+msgid  "'-c <ncu-class>' can only be used for ncu"
+msgstr
+msgid  "too many profile names given"
+msgstr
+msgid  "no profile name given"
+msgstr
+msgid  "no profile matched '%s'"
+msgstr
+msgid  "more than one profile matched '%s' - use "
+       "'-p <profile-type>' to specify a profile type."
+msgstr
+msgid  "Enabling %s '%s'\n"
+msgstr
+msgid  "Only profiles with manual activation-mode can be enabled"
+msgstr
+msgid  "Could not enable %s '%s'"
+msgstr
+msgid  "ncp's cannot be disabled.  Enable a different ncp to "
+       "switch to that ncp"
+msgstr
+msgid  "Disabling %s '%s'\n"
+msgstr
+msgid  "Only profiles with manual activation-mode can be "
+       "disabled"
+msgstr
+msgid  "Could not disable %s '%s'"
+msgstr
+# msgid  "class"
+# msgstr
+msgid  "invalid print_list_cb() input: %d"
+msgstr
+msgid  "could not get object state"
+msgstr
+msgid  "could not add ncu to list"
+msgstr
+msgid  "could not add ncp to list"
+msgstr
+msgid  "could not add loc to list"
+msgstr
+msgid  "could not add enm to list"
+msgstr
+msgid  "type,profile,state"
+msgstr
+msgid  "type,profile,state,auxiliary state"
+msgstr
+msgid  "ofmt_open() failed: %s"
+msgstr
+# msgid  "no profile matched '%s'"
+# msgstr
+msgid  "list failed during walk"
+msgstr
+msgid  "Found %u  Scan Results for link %s"
+msgstr
+msgid  "connect to WLAN ESSID %s, BSSID %s %s"
+msgstr
+msgid  "succeeded"
+msgstr
+msgid  "disconnected from WLAN ESSID %s, BSSID %s %s"
+msgstr
+msgid  "failed"
+msgstr
+msgid  "flags %x addr %s/%d"
+msgstr
+msgid  "flags %x"
+msgstr
+msgid  "up"
+msgstr
+msgid  "down"
+msgstr
+msgid  "could not bind to receive events"
+msgstr
+msgid  "event handling stopped"
+msgstr
+msgid  "EAP Identity [mandatory]"
+msgstr
+msgid  "EAP Anonymous Identity [optional]"
+msgstr
+msgid  "CA Certificate [optional]"
+msgstr
+msgid  "EAP-TLS Private Key Filename [mandatory] \n"
+msgstr
+msgid  "EAP-TLS Client Certificate [optional if pk12 file was "
+       "used for Private Key]"
+msgstr
+msgid  "\n %d: %s"
+msgstr
+msgid  "\nEnter EAP mode: "
+msgstr
+msgid  "\nEnter %s : "
+msgstr
+# msgid  "\nEnter %s : "
+# msgstr
+# msgid  "\nEnter %s : "
+# msgstr
+msgid  "\nEnter %s: "
+msgstr
+# msgid  "\nEnter %s: "
+# msgstr
+msgid  "    WlanID"
+msgstr
+msgid  "CHAN"
+msgstr
+msgid  "STRENGTH"
+msgstr
+msgid  "SPEED"
+msgstr
+msgid  "SECMODE"
+msgstr
+msgid  "    WlanID,bssid,chan,strength,speed,essid,secmode"
+msgstr
+msgid  "%u)  {%u}"
+msgstr
+msgid  "%u)  NONE"
+msgstr
+msgid  "Scan request failed for %s"
+msgstr
+msgid  "Scanning on link %s ...\n"
+msgstr
+msgid  "Could not bind to receive events"
+msgstr
+msgid  "Event handling stopped"
+msgstr
+msgid  "Could not retrieve scan results for %s"
+msgstr
+msgid  "No wireless networks found during last scan(%s)"
+msgstr
+msgid  "Internal Error %s"
+msgstr
+msgid  "\n%d)  Specify a different AP\n"
+msgstr
+msgid  "\nChoose WLAN to connect to [1-%d]: "
+msgstr
+msgid  "Out of Memory"
+msgstr
+msgid  "\nEnter Wlan SSID (max 32 chars)"
+       ": "
+msgstr
+msgid  " \n\t"
+msgstr
+msgid  "\n%d: %s"
+msgstr
+msgid  "\nEnter security mode: "
+msgstr
+msgid  "\nConnecting link %s ...\n"
+msgstr
+msgid  "\nCould not select WLAN %s [%s]\n"
+msgstr
+# msgid  "Could not bind to receive events"
+# msgstr
+# msgid  "Event handling stopped"
+# msgstr
+msgid  "svc:/network/physical:nwam"
+msgstr
+msgid  "online"
+msgstr
+msgid  "enable '%s' to use '%s %s'"
+msgstr
+# msgid  "svc:/network/physical:nwam"
+# msgstr
+msgid  "%s: unknown subcommand '%s'\n"
+msgstr

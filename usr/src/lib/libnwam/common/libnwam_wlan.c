@@ -22,6 +22,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include "libnwam_impl.h"
@@ -39,7 +40,7 @@ nwam_error_t
 nwam_wlan_scan(const char *linkname)
 {
 	return (nwam_request_wlan(NWAM_REQUEST_TYPE_WLAN_SCAN, linkname,
-	    NULL, NULL, 0, 0, NULL, B_FALSE));
+	    NULL, NULL, NULL));
 }
 
 /*
@@ -49,28 +50,16 @@ nwam_error_t
 nwam_wlan_get_scan_results(const char *linkname, uint_t *num_wlansp,
     nwam_wlan_t **wlansp)
 {
-	return (nwam_request_wlan_scan_results(linkname, num_wlansp,
-	    wlansp));
+	return (nwam_request_wlan_scan_results(linkname, num_wlansp, wlansp));
 }
 
 /*
  * Select specified WLAN <essid, bssid> for link linkname.
  */
 nwam_error_t
-nwam_wlan_select(const char *linkname, const char *essid, const char *bssid,
-    uint32_t secmode, boolean_t add_to_known_wlans)
+nwam_wlan_select(const char *linkname, const nwam_wlan_t *mywlan,
+    const dladm_wlan_key_t *key_data, const dladm_wlan_eap_t *eap_data)
 {
-	return (nwam_request_wlan(NWAM_REQUEST_TYPE_WLAN_SELECT,
-	    linkname, essid, bssid, secmode, 0, NULL, add_to_known_wlans));
-}
-
-/*
- * Create/update security key for WLAN <essid, bssid>.
- */
-nwam_error_t
-nwam_wlan_set_key(const char *linkname, const char *essid, const char *bssid,
-    uint32_t secmode, uint_t keyslot, const char *key)
-{
-	return (nwam_request_wlan(NWAM_REQUEST_TYPE_WLAN_SET_KEY,
-	    linkname, essid, bssid, secmode, keyslot, key, B_FALSE));
+	return (nwam_request_wlan(NWAM_REQUEST_TYPE_WLAN_SELECT, linkname,
+	    mywlan, key_data, eap_data));
 }

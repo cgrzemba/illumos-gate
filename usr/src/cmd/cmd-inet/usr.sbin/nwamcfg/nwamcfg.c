@@ -21,6 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -194,11 +195,16 @@ static char *pt_types[] = {
 	NWAM_LOC_PROP_IPPOOL_CONFIG_FILE,
 	NWAM_LOC_PROP_IKE_CONFIG_FILE,
 	NWAM_LOC_PROP_IPSECPOLICY_CONFIG_FILE,
-	NWAM_KNOWN_WLAN_PROP_BSSIDS,
-	NWAM_KNOWN_WLAN_PROP_PRIORITY,
+	NWAM_KNOWN_WLAN_PROP_SSID,
+	NWAM_KNOWN_WLAN_PROP_BSSID,
 	NWAM_KNOWN_WLAN_PROP_KEYNAME,
-	NWAM_KNOWN_WLAN_PROP_KEYSLOT,
-	NWAM_KNOWN_WLAN_PROP_SECURITY_MODE
+	NWAM_KNOWN_WLAN_PROP_PRIORITY,
+	NWAM_KNOWN_WLAN_PROP_DISABLED,
+	NWAM_KNOWN_WLAN_PROP_EAP_USER,
+	NWAM_KNOWN_WLAN_PROP_EAP_ANON,
+	NWAM_KNOWN_WLAN_PROP_CA_CERT,
+	NWAM_KNOWN_WLAN_PROP_PRIV,
+	NWAM_KNOWN_WLAN_PROP_CLI_CERT
 };
 
 /* properties table: maps PT_* constants to property names */
@@ -268,11 +274,16 @@ static prop_table_entry_t loc_prop_table[] = {
 
 /* Known WLAN properties table */
 static prop_table_entry_t wlan_prop_table[] = {
-	{ PT_WLAN_BSSIDS, 	NWAM_KNOWN_WLAN_PROP_BSSIDS },
-	{ PT_WLAN_PRIORITY, 	NWAM_KNOWN_WLAN_PROP_PRIORITY },
+	{ PT_WLAN_SSID, 	NWAM_KNOWN_WLAN_PROP_SSID },
+	{ PT_WLAN_BSSID, 	NWAM_KNOWN_WLAN_PROP_BSSID },
 	{ PT_WLAN_KEYNAME, 	NWAM_KNOWN_WLAN_PROP_KEYNAME },
-	{ PT_WLAN_KEYSLOT, 	NWAM_KNOWN_WLAN_PROP_KEYSLOT },
-	{ PT_WLAN_SECURITY_MODE, NWAM_KNOWN_WLAN_PROP_SECURITY_MODE },
+	{ PT_WLAN_PRIORITY, 	NWAM_KNOWN_WLAN_PROP_PRIORITY },
+	{ PT_WLAN_DISABLED, 	NWAM_KNOWN_WLAN_PROP_DISABLED },
+	{ PT_WLAN_EAP_USER, 	NWAM_KNOWN_WLAN_PROP_EAP_USER },
+	{ PT_WLAN_EAP_ANON, 	NWAM_KNOWN_WLAN_PROP_EAP_ANON },
+	{ PT_WLAN_CA_CERT, 	NWAM_KNOWN_WLAN_PROP_CA_CERT },
+	{ PT_WLAN_PRIV, 	NWAM_KNOWN_WLAN_PROP_PRIV },
+	{ PT_WLAN_CLI_CERT, 	NWAM_KNOWN_WLAN_PROP_CLI_CERT },
 	{ 0, NULL }
 };
 
@@ -1169,7 +1180,7 @@ do_commit()
 		ret = nwam_loc_commit(loc_h, 0);
 		break;
 	case NWAM_OBJECT_TYPE_KNOWN_WLAN:
-		ret = nwam_known_wlan_commit(wlan_h, 0);
+		ret = nwam_known_wlan_commit(wlan_h);
 		break;
 	}
 
@@ -1356,11 +1367,16 @@ create_func(cmd_t *cmd)
 			    ncu_class, &ncu_h);
 		}
 
+		if (cmd->cmd_res1_type == RT1_WLAN && ret == NWAM_INVALID_ARG) {
+			nerr("Invalid known wlan name: "
+			    "Only positive decimal numbers are valid");
+			goto done;
+		}
+
 		if (ret != NWAM_SUCCESS) {
 			nwamerr(ret, "Create error");
 			goto done;
 		}
-
 	} else {
 		/* template given */
 		/* argv[0] is -t, argv[1] is old name, argv[2] is new name */
@@ -1553,7 +1569,7 @@ destroy_all(void)
 	if (ret != NWAM_SUCCESS)
 		goto done;
 
-	ret = nwam_walk_known_wlans(destroy_wlan_callback, NULL, 0, NULL);
+	ret = nwam_walk_known_wlans(destroy_wlan_callback, NULL, NULL);
 	if (ret != NWAM_SUCCESS)
 		goto done;
 
@@ -2253,7 +2269,19 @@ static prop_display_entry_t loc_prop_display_entry_table[] = {
 
 /* Rules for Known WLANs */
 static prop_display_entry_t wlan_prop_display_entry_table[] = {
-	/* no rules for WLANs */
+	{ NWAM_KNOWN_WLAN_PROP_EAP_USER, NWAM_KNOWN_WLAN_PROP_KEYNAME,
+	    { DLADM_SECOBJ_CLASS_TLS, DLADM_SECOBJ_CLASS_TTLS,
+	    DLADM_SECOBJ_CLASS_PEAP, -1 } },
+	{ NWAM_KNOWN_WLAN_PROP_EAP_ANON, NWAM_KNOWN_WLAN_PROP_KEYNAME,
+	    { DLADM_SECOBJ_CLASS_TLS, DLADM_SECOBJ_CLASS_TTLS,
+	    DLADM_SECOBJ_CLASS_PEAP, -1 } },
+	{ NWAM_KNOWN_WLAN_PROP_CA_CERT, NWAM_KNOWN_WLAN_PROP_KEYNAME,
+	    { DLADM_SECOBJ_CLASS_TLS, DLADM_SECOBJ_CLASS_TTLS,
+	    DLADM_SECOBJ_CLASS_PEAP, -1 } },
+	{ NWAM_KNOWN_WLAN_PROP_PRIV, NWAM_KNOWN_WLAN_PROP_KEYNAME,
+	    { DLADM_SECOBJ_CLASS_TLS, -1 } },
+	{ NWAM_KNOWN_WLAN_PROP_CLI_CERT, NWAM_KNOWN_WLAN_PROP_PRIV,
+	    { NWAM_SUCCESS, -1 } },
 	{ NULL, NULL, { -1 } }
 };
 
@@ -2329,7 +2357,9 @@ show_prop_test(nwam_object_type_t object_type, const char *prop,
 			    display_list[i].pde_checkname, &prop_val);
 			break;
 		case NWAM_OBJECT_TYPE_KNOWN_WLAN:
-			return (B_TRUE);
+			ret = nwam_known_wlan_get_prop_value(wlan_h,
+			    display_list[i].pde_checkname, &prop_val);
+			break;
 		}
 		if (ret != NWAM_SUCCESS)
 			continue;
@@ -2375,6 +2405,57 @@ show_prop_test(nwam_object_type_t object_type, const char *prop,
 			    k++) {
 				/* show if bval matches */
 				if (bval == (boolean_t)
+				    display_list[i].pde_checkvals[k]) {
+					show_prop = B_TRUE;
+					goto next_rule;
+				}
+			}
+		} else if (object_type == NWAM_OBJECT_TYPE_KNOWN_WLAN &&
+		    strcmp(prop, NWAM_KNOWN_WLAN_PROP_CLI_CERT) == 0 &&
+		    prop_type == NWAM_VALUE_TYPE_STRING) {
+			/*
+			 * TODO:
+			 * When PKCS#11 certificates by reference are supported
+			 * check if private key is a .pk12 file so that this
+			 * property is skipped.
+			 */
+			show_prop = B_TRUE;
+			goto next_rule;
+		} else if (object_type == NWAM_OBJECT_TYPE_KNOWN_WLAN &&
+		    strcmp(prop, NWAM_KNOWN_WLAN_PROP_KEYNAME) == 0 &&
+		    prop_type == NWAM_VALUE_TYPE_STRING) {
+			dladm_handle_t adm_handle;
+			secobj_class_info_t key_if;
+			char *keyname = NULL;
+			if (nwam_value_get_string(prop_val, &keyname) !=
+			    NWAM_SUCCESS) {
+				nwam_value_free(prop_val);
+				continue;
+			}
+			if (dladm_open(&adm_handle) != DLADM_STATUS_OK) {
+				nwam_value_free(prop_val);
+				continue;
+			}
+
+			key_if.sc_name = keyname;
+			key_if.sc_dladmclass = 0;
+			if (dladm_walk_secobj(adm_handle, &key_if,
+			    find_matching_secobj,
+			    DLADM_OPT_ACTIVE | DLADM_OPT_PERSIST)) {
+				dladm_close(adm_handle);
+				nwam_value_free(prop_val);
+				continue;
+			}
+			dladm_close(adm_handle);
+
+			if (key_if.sc_dladmclass == 0) {
+				nwam_value_free(prop_val);
+				continue;
+			}
+
+			for (k = 0; display_list[i].pde_checkvals[k] != -1;
+			    k++) {
+				if (key_if.sc_dladmclass ==
 				    display_list[i].pde_checkvals[k]) {
 					show_prop = B_TRUE;
 					goto next_rule;
@@ -2464,7 +2545,7 @@ is_prop_multivalued(nwam_object_type_t object_type, const char *prop)
 		ret = nwam_enm_prop_multivalued(prop, &multi);
 		break;
 	case NWAM_OBJECT_TYPE_KNOWN_WLAN:
-		ret = nwam_known_wlan_prop_multivalued(prop, &multi);
+		ret = NWAM_INVALID_ARG;
 		break;
 	}
 
@@ -2546,6 +2627,7 @@ set_func(cmd_t *cmd)
 		nerr("Set error: property '%s' is read-only", prop);
 		return;
 	}
+
 	if (!show_prop_test(object_type, prop, prop_table, checked, 0)) {
 		if (interactive_mode) {
 			(void) printf(gettext("setting property '%s' "
@@ -3186,8 +3268,7 @@ list_func(cmd_t *cmd)
 			    cmd->cmd_argv[0], all_props, NULL, -1);
 		} else {
 			ret = nwam_walk_known_wlans(list_wlan_callback,
-			    &list_msg, NWAM_FLAG_KNOWN_WLAN_WALK_PRIORITY_ORDER,
-			    NULL);
+			    &list_msg, NULL);
 		}
 		if (ret != NWAM_SUCCESS)
 			goto done;
@@ -3707,7 +3788,7 @@ export_func(cmd_t *cmd)
 		if (name == NULL) {
 			/* export all WLANs */
 			ret = nwam_walk_known_wlans(export_wlan_callback, of,
-			    NWAM_FLAG_KNOWN_WLAN_WALK_PRIORITY_ORDER, NULL);
+			    NULL);
 		} else {
 			if (wlan_h == NULL) {
 				ret = nwam_known_wlan_read(name, 0,
@@ -4059,6 +4140,7 @@ walkprop_func(cmd_t *cmd)
 			(void) putchar(')');
 			nwam_value_free(vals);
 		}
+
 		/* print choices, won't print anything if there aren't any */
 		print_all_prop_choices(object_type, props[i]);
 		(void) printf("> ");

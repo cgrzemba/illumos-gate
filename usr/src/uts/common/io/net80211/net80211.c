@@ -44,7 +44,6 @@
 #include <sys/cmn_err.h>
 #include <sys/modctl.h>
 #include <sys/stropts.h>
-#include <sys/door.h>
 #include <sys/mac_provider.h>
 #include "net80211_impl.h"
 
@@ -135,81 +134,6 @@ ieee80211_mac_update(ieee80211com_t *ic)
 	mac_tx_update(ic->ic_mach);
 	ieee80211_dbg(IEEE80211_MSG_ANY, "ieee80211_mac_update"
 	    "(cipher = %d)\n", wd.wd_secalloc);
-}
-
-/*
- * ieee80211_event_thread
- * open door of wpa, send event to wpad service
- */
-static void
-ieee80211_event_thread(void *arg)
-{
-	ieee80211com_t *ic = arg;
-	door_handle_t event_door = NULL;	/* Door for upcalls */
-	wl_events_t ev;
-	door_arg_t darg;
-
-	mutex_enter(&ic->ic_doorlock);
-
-	ev.event = ic->ic_eventq[ic->ic_evq_head];
-	ic->ic_evq_head ++;
-	if (ic->ic_evq_head >= MAX_EVENT)
-		ic->ic_evq_head = 0;
-
-	ieee80211_dbg(IEEE80211_MSG_DEBUG, "ieee80211_event(%d)\n", ev.event);
-	/*
-	 * Locate the door used for upcalls
-	 */
-	if (door_ki_open(ic->ic_wpadoor, &event_door) != 0) {
-		ieee80211_err("ieee80211_event: door_ki_open(%s) failed\n",
-		    ic->ic_wpadoor);
-		goto out;
-	}
-
-	darg.data_ptr = (char *)&ev;
-	darg.data_size = sizeof (wl_events_t);
-	darg.desc_ptr = NULL;
-	darg.desc_num = 0;
-	darg.rbuf = NULL;
-	darg.rsize = 0;
-
-	if (door_ki_upcall_limited(event_door, &darg, NULL, SIZE_MAX, 0) != 0) {
-		ieee80211_err("ieee80211_event: door_ki_upcall() failed\n");
-	}
-
-	if (event_door) {	/* release our hold (if any) */
-		door_ki_rele(event_door);
-	}
-
-out:
-	mutex_exit(&ic->ic_doorlock);
-}
-
-/*
- * Notify state transition event message to WPA daemon
- */
-void
-ieee80211_notify(ieee80211com_t *ic, wpa_event_type event)
-{
-	if ((ic->ic_flags & IEEE80211_F_WPA) == 0)
-		return;		/* Not running on WPA mode */
-
-	ic->ic_eventq[ic->ic_evq_tail] = event;
-	ic->ic_evq_tail ++;
-	if (ic->ic_evq_tail >= MAX_EVENT) ic->ic_evq_tail = 0;
-
-	/* async */
-	(void) timeout(ieee80211_event_thread, (void *)ic, 0);
-}
-
-/*
- * Register WPA door
- */
-void
-ieee80211_register_door(ieee80211com_t *ic, const char *drvname, int inst)
-{
-	(void) snprintf(ic->ic_wpadoor, MAX_IEEE80211STR, "%s_%s%d",
-	    WPA_DOOR, drvname, inst);
 }
 
 /*
@@ -347,7 +271,7 @@ ieee80211_watchdog(void *arg)
 	IEEE80211_LOCK(ic);
 	if ((im->im_mgt_timer != 0) && (--im->im_mgt_timer == 0)) {
 		IEEE80211_UNLOCK(ic);
-		ieee80211_new_state(ic, IEEE80211_S_SCAN, -1);
+		ieee80211_new_state(ic, IEEE80211_S_SCAN, 0);
 		IEEE80211_LOCK(ic);
 	}
 
@@ -643,33 +567,6 @@ ieee80211_getmgtframe(uint8_t **frm, int pktlen)
 }
 
 /*
- * Send system messages to notify the device has joined a WLAN.
- * This is an OS specific function. Solaris marks link status
- * as up.
- */
-void
-ieee80211_notify_node_join(ieee80211com_t *ic, ieee80211_node_t *in)
-{
-	if (in == ic->ic_bss)
-		mac_link_update(ic->ic_mach, LINK_STATE_UP);
-	ieee80211_notify(ic, EVENT_ASSOC);	/* notify WPA service */
-}
-
-/*
- * Send system messages to notify the device has left a WLAN.
- * This is an OS specific function. Solaris marks link status
- * as down.
- */
-void
-ieee80211_notify_node_leave(ieee80211com_t *ic, ieee80211_node_t *in)
-{
-	if (in == ic->ic_bss)
-		mac_link_update(ic->ic_mach, LINK_STATE_DOWN);
-	ieee80211_notify(ic, EVENT_DISASSOC);	/* notify WPA service */
-}
-
-
-/*
  * Get 802.11 kstats defined in ieee802.11(5)
  *
  * Return 0 on success
@@ -820,6 +717,9 @@ void
 ieee80211_detach(ieee80211com_t *ic)
 {
 	struct ieee80211_impl *im = ic->ic_private;
+
+	/* sync */
+	ieee80211_notify_detach(ic);
 
 	ieee80211_stop_watchdog(ic);
 	cv_destroy(&im->im_scan_cv);

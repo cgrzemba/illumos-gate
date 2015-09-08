@@ -1,6 +1,7 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 /*
@@ -726,7 +727,7 @@ ieee80211_wme_updateparams(struct ieee80211com *ic)
 /*
  * Process STA mode beacon miss events. Send a direct probe request
  * frame to the current ap bmiss_max times (w/o answer) before
- * scanning for a new ap.
+ * scanning.
  */
 void
 ieee80211_beacon_miss(ieee80211com_t *ic)
@@ -824,7 +825,10 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 		}
 		IEEE80211_LOCK(ic);
 		im->im_mgt_timer = 0;
-		ieee80211_reset_bss(ic);
+		if (ostate != IEEE80211_S_SCAN)
+			ieee80211_reset_bss(ic);
+		else
+			ieee80211_notify_scan_res(ic);
 		break;
 	case IEEE80211_S_SCAN:
 		switch (ostate) {
@@ -836,8 +840,7 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 			/*
 			 * Scan next. If doing an active scan and the
 			 * channel is not marked passive-only then send
-			 * a probe request.  Otherwise just listen for
-			 * beacons on the channel.
+			 * a probe request.
 			 */
 			if ((ic->ic_flags & IEEE80211_F_ASCAN) &&
 			    !IEEE80211_IS_CHAN_PASSIVE(ic->ic_curchan)) {
@@ -852,14 +855,15 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 			break;
 		case IEEE80211_S_RUN:
 			/* beacon miss */
+			ic->ic_state = ostate;	/* stay RUN */
 			ieee80211_dbg(IEEE80211_MSG_STATE,
 			    "no recent beacons from %s, rescanning\n",
 			    ieee80211_macaddr_sprintf(in->in_macaddr));
 			IEEE80211_UNLOCK(ic);
-			ieee80211_sta_leave(ic, in);
+			ieee80211_beacon_miss(ic);
 			IEEE80211_LOCK(ic);
 			ic->ic_flags &= ~IEEE80211_F_SIBSS;
-			/* FALLTHRU */
+			break;
 		case IEEE80211_S_AUTH:
 		case IEEE80211_S_ASSOC:
 			/* timeout restart scan */
@@ -869,18 +873,26 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 				in->in_fails++;
 				ieee80211_unref_node(&in);
 			}
-			break;
+			IEEE80211_UNLOCK(ic);
+			ieee80211_begin_scan(ic, B_FALSE);
+			return (0);
 		}
 		break;
 	case IEEE80211_S_AUTH:
 		ASSERT(ic->ic_opmode == IEEE80211_M_STA);
 		switch (ostate) {
 		case IEEE80211_S_INIT:
-		case IEEE80211_S_SCAN:
 			IEEE80211_UNLOCK(ic);
 			IEEE80211_SEND_MGMT(ic, in, IEEE80211_FC0_SUBTYPE_AUTH,
 			    1);
 			return (0);
+		case IEEE80211_S_SCAN:
+			IEEE80211_UNLOCK(ic);
+			ieee80211_cancel_scan(ic);
+			ieee80211_notify_scan_res(ic);
+			IEEE80211_SEND_MGMT(ic, in, IEEE80211_FC0_SUBTYPE_AUTH,
+			    1);
+			break;
 		case IEEE80211_S_AUTH:
 		case IEEE80211_S_ASSOC:
 			switch (arg) {
@@ -904,10 +916,9 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 				return (0);
 			case IEEE80211_FC0_SUBTYPE_DEAUTH:
 				IEEE80211_UNLOCK(ic);
-				ieee80211_sta_leave(ic, in);
-				/* try to re-auth */
 				IEEE80211_SEND_MGMT(ic, in,
-				    IEEE80211_FC0_SUBTYPE_AUTH, 1);
+				    IEEE80211_FC0_SUBTYPE_DEAUTH, 1);
+				ieee80211_sta_leave(ic, in);
 				return (0);
 			}
 			break;
@@ -949,8 +960,6 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 		case IEEE80211_S_ASSOC:		/* infra mode */
 			ASSERT(in->in_txrate < in->in_rates.ir_nrates);
 			im->im_mgt_timer = 0;
-			ieee80211_notify_node_join(ic, in);
-
 			/*
 			 * We can send data now; update the fastpath with our
 			 * current associated BSSID and other relevant settings.
@@ -968,6 +977,7 @@ ieee80211_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 				}
 			}
 			(void) mac_pdata_update(ic->ic_mach, &wd, sizeof (wd));
+			ieee80211_notify_node_join(ic, in);
 			break;
 		}
 

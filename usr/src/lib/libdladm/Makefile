@@ -20,12 +20,13 @@
 #
 #
 # Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
 #
 #
 
 include $(SRC)/lib/Makefile.lib
 
-HDRS =		libdladm.h libdladm_impl.h libdllink.h libdlaggr.h	\
+HDRS =		libdladm.h libdladm_impl.h libdllink.h libdlaggr.h secobj.h \
 		libdlwlan.h libdlwlan_impl.h libdlvnic.h libdlvlan.h	\
 		libdlmgmt.h libdlflow.h libdlflow_impl.h libdlstat.h	\
 		libdlether.h libdlsim.h libdlbridge.h libdliptun.h	\
@@ -37,10 +38,10 @@ SUBDIRS =	$(MACH)
 $(BUILD64)SUBDIRS += $(MACH64)
 
 POFILE =	libdladm.po
-MSGFILES =	common/libdladm.c common/linkprop.c common/secobj.c	\
-		common/libdllink.c common/libdlaggr.c	\
-		common/libdlwlan.c common/libdlvnic.c	\
-		common/libdlvlan.c common/libdlmgmt.c	\
+MSGFILES =	common/libdladm.c common/linkprop.c common/libdllink.c \
+		common/libdlaggr.c common/secobj.c common/eap_pk11.c \
+		common/wpa_ie.c common/wpa_ctrl.c common/libdlwlan.c \
+		common/libdlvnic.c common/libdlvlan.c common/libdlmgmt.c \
 		common/flowattr.c common/flowprop.c	\
 		common/propfuncs.c common/libdlflow.c	\
 		common/libdlstat.c common/flowattr.c	\

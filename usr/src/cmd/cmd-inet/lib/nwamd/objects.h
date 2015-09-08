@@ -22,6 +22,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #ifndef _OBJECTS_H
@@ -150,7 +151,6 @@ extern void nwamd_ncu_handle_state_event(nwamd_event_t);
 
 extern void nwamd_ncp_handle_action_event(nwamd_event_t);
 extern void nwamd_ncp_handle_state_event(nwamd_event_t);
-extern void nwamd_ncu_handle_periodic_scan_event(nwamd_event_t);
 extern void nwamd_ncp_handle_enable_event(nwamd_event_t);
 extern void nwamd_handle_upgrade(nwamd_event_t);
 
