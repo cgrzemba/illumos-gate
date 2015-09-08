@@ -252,6 +252,7 @@ export DEV_CM RELEASE_DATE POUND_SIGN
 print 'Build type   is  \c'
 if ${flags.d} ; then
 	print 'DEBUG'
+        export SOURCEDEBUG=yes
 	unset RELEASE_BUILD
 	unset EXTRA_OPTIONS
 	unset EXTRA_CFLAGS

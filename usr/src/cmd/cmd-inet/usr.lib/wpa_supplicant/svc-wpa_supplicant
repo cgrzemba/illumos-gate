@@ -1,0 +1,90 @@
+#!/sbin/sh
+#
+# CDDL HEADER START
+#
+# The contents of this file are subject to the terms of the
+# Common Development and Distribution License (the "License").
+# You may not use this file except in compliance with the License.
+#
+# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+# or http://www.opensolaris.org/os/licensing.
+# See the License for the specific language governing permissions
+# and limitations under the License.
+#
+# When distributing Covered Code, include this CDDL HEADER in each
+# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+# If applicable, add the following below this CDDL HEADER, with the
+# fields enclosed by brackets "[]" replaced with your own identifying
+# information: Portions Copyright [yyyy] [name of copyright owner]
+#
+# CDDL HEADER END
+#
+
+#
+# Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
+#
+
+# Standard prolog
+#
+. /lib/svc/share/smf_include.sh
+
+smf_is_globalzone || exit $SMF_EXIT_OK
+
+if [ -z $SMF_FMRI ]; then
+        echo "SMF framework variables are not initialized."
+        exit $SMF_EXIT_ERR
+fi
+
+# TODO: check known-wlans.conf if nwam is enabled
+
+# Disable globbing to prevent privilege escalations by users authorized
+# to set property values for the NTP service.
+set -f
+
+#
+# Build the command line flags
+#
+shift $#
+
+# Path to global ctrl_interface socket.
+set -- -g/var/run/wpa_supplicant-global
+# Path to PID file.
+set -- "$@" -P/var/run/wpa_supplicant.pid
+# Run daemon in the background.
+set -- "$@" -B
+# Wait for a control interface monitor before starting.
+set -- "$@" -W
+
+debug=`svcprop -c -p config/debug_enabled $SMF_FMRI`
+if [ "$debug" = "true" ]; then
+	# Increase debugging verbosity (-dd even more).
+	# Log output to specified file instead of stdout.
+	verbose=`svcprop -c -p config/verbose_debug $SMF_FMRI`
+	if [ "$verbose" = "true" ]; then
+		set -- "$@" -dd -f/var/log/wpa_supplicant.log
+	else
+		set -- "$@" -d -f/var/log/wpa_supplicant.log
+	fi
+
+	# Include keys (passwords, etc.) in debug output.
+	keys=`svcprop -c -p config/keys_debug $SMF_FMRI`
+	if [ "$keys" = "true" ]; then
+		set -- "$@" -K
+	fi
+
+	# Include timestamp in debug messages.
+	timestamps=`svcprop -c -p config/timestamps_debug $SMF_FMRI`
+	if [ "$timestamps" = "true" ]; then
+		set -- "$@" -t
+	fi;
+fi
+
+/usr/lib/inet/wpa_supplicant "$@"
+
+# TODO: check ctrl interface
+
+if [ $? = 0 ]; then
+        exit $SMF_EXIT_OK
+else
+        exit $SMF_EXIT_ERR_FATAL
+fi

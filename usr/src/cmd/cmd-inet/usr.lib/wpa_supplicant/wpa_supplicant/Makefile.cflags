@@ -1,0 +1,26 @@
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+
+#
+# Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
+#
+
+#1. Illumos config back-end and driver interface flags
+#2. EAP methods flags
+#3. OpenSSL Engine/EAP/TLS Library Flags
+#4. Control Interface flags
+#5. Debug Control Flags
+
+WPAFLAGS= 	-DCONFIG_BACKEND_SOLARIS -DCONFIG_DRIVER_SOLARIS -DCONFIG_NO_CONFIG_WRITE \
+ -DEAP_MD5 -DEAP_TLS -DEAP_MSCHAPv2 -DEAP_PEAP -DEAP_TTLS -DEAP_GTC \
+ -DIEEE8021X_EAPOL -DPKCS12_FUNCS -DCONFIG_SMARTCARD -DEAP_TLS_OPENSSL \
+ -DCONFIG_CTRL_IFACE -DCONFIG_CTRL_IFACE_UNIX \
+ -DCONFIG_DEBUG_SYSLOG -DLOG_HOSTAPD="LOG_DAEMON" -DCONFIG_DEBUG_FILE
