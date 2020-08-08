@@ -19,10 +19,29 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
+
 #include "arn_core.h"
 #include "arn_hw.h"
 #include "arn_reg.h"
 #include "arn_phy.h"
+
+
+void
+ath9k_hw_analog_shift_rmw(struct ath_hal *ah,
+    uint32_t reg, uint32_t mask,
+    uint32_t shift, uint32_t val)
+{
+        uint32_t regVal;
+
+        regVal = REG_READ(ah, reg) & ~mask;
+        regVal |= (val << shift) & mask;
+
+        REG_WRITE(ah, reg, regVal);
+
+        if (ah->ah_config.analog_shiftreg)
+                drv_usecwait(100);
+}
 
 /* ARGSUSED */
 void
@@ -44,6 +63,8 @@ ath9k_hw_set_channel(struct ath_hal *ah, struct ath9k_channel *chan)
 	uint32_t reg32 = 0;
 	uint16_t freq;
 	struct chan_centers centers;
+	struct ath_hal_5416 *ahp = AH5416(ah);
+	int regWrites = 0;
 
 	ath9k_hw_get_channel_centers(ah, chan, &centers);
 	freq = centers.synth_center;
@@ -66,14 +87,25 @@ ath9k_hw_set_channel(struct ath_hal *ah, struct ath9k_channel *chan)
 		channelSel = (channelSel << 2) & 0xff;
 		channelSel = ath9k_hw_reverse_bits(channelSel, 8);
 
-		txctl = REG_READ(ah, AR_PHY_CCK_TX_CTRL);
-		if (freq == 2484) {
+                if (AR_SREV_9287_11_OR_LATER(ah)) {
+                        if (freq == 2484) {
+                                /* Enable channel spreading for channel 14 */
+                                REG_WRITE_ARRAY(&ahp->ah_iniCckfirJapan2484,
+                                                1, regWrites);
+                        } else {
+                                REG_WRITE_ARRAY(&ahp->ah_iniCckfirNormal,
+                                                1, regWrites);
+                        }
+                } else {
+			txctl = REG_READ(ah, AR_PHY_CCK_TX_CTRL);
+			if (freq == 2484) {
 
-			REG_WRITE(ah, AR_PHY_CCK_TX_CTRL,
-			    txctl | AR_PHY_CCK_TX_CTRL_JAPAN);
-		} else {
-			REG_WRITE(ah, AR_PHY_CCK_TX_CTRL,
-			    txctl & ~AR_PHY_CCK_TX_CTRL_JAPAN);
+				REG_WRITE(ah, AR_PHY_CCK_TX_CTRL,
+				    txctl | AR_PHY_CCK_TX_CTRL_JAPAN);
+			} else {
+				REG_WRITE(ah, AR_PHY_CCK_TX_CTRL,
+				    txctl & ~AR_PHY_CCK_TX_CTRL_JAPAN);
+			}
 		}
 
 	} else if ((freq % 20) == 0 && freq >= 5120) {
@@ -449,3 +481,30 @@ ath9k_hw_decrease_chain_power(struct ath_hal *ah, struct ath9k_channel *chan)
 	    | ((REG_READ(ah, PHY_SWITCH_CHAIN_0) >> 3) & 0x38));
 #endif
 }
+
+void ath9k_olc_init(struct ath_hal *ah)
+{
+        uint32_t i;
+	struct ath_hal_5416 *ahp = AH5416(ah);
+
+        if (!OLC_FOR_AR9280_20_LATER)
+                return;
+
+        if (OLC_FOR_AR9287_10_LATER) {
+                REG_SET_BIT(ah, AR_PHY_TX_PWRCTRL9,
+                                AR_PHY_TX_PWRCTRL9_RES_DC_REMOVAL);
+                ath9k_hw_analog_shift_rmw(ah, AR9287_AN_TXPC0,
+                                AR9287_AN_TXPC0_TXPCMODE,
+                                AR9287_AN_TXPC0_TXPCMODE_S,
+                                AR9287_AN_TXPC0_TXPCMODE_TEMPSENSE);
+                drv_usecwait(100000);
+        } else {
+                for (i = 0; i < AR9280_TX_GAIN_TABLE_SIZE; i++)
+                        ahp->ah_originalGain[i] =
+                                MS(REG_READ(ah, AR_PHY_TX_GAIN_TBL1 + i * 4),
+                                                AR_PHY_TX_GAIN);
+                ahp->ah_PDADCdelta = 0;
+        }
+}
+
+

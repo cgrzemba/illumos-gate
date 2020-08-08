@@ -752,6 +752,11 @@ extern "C" {
 #define	AR_SREV_REVISION_9285_10	0
 #define	AR_SREV_REVISION_9285_11	1
 #define	AR_SREV_REVISION_9285_12	2
+#define	AR_SREV_VERSION_9287		0x180
+#define	AR_SREV_REVISION_9287_10	0
+#define	AR_SREV_REVISION_9287_11	1
+#define	AR_SREV_REVISION_9287_12	2
+#define	AR_SREV_REVISION_9287_13	3
 
 #define	AR_SREV_9100_OR_LATER(_ah) \
 	(((_ah)->ah_macVersion >= AR_SREV_VERSION_5416_PCIE))
@@ -783,15 +788,39 @@ extern "C" {
 #define	AR_SREV_9285_10_OR_LATER(_ah)	\
 	(((_ah)->ah_macVersion >= AR_SREV_VERSION_9285))
 #define	AR_SREV_9285_11(_ah) \
-	(AR_SREV_9280(ah) && ((_ah)->ah_macRev == AR_SREV_REVISION_9285_11))
+	(AR_SREV_9285(ah) && ((_ah)->ah_macRev == AR_SREV_REVISION_9285_11))
 #define	AR_SREV_9285_11_OR_LATER(_ah)	\
 	(((_ah)->ah_macVersion > AR_SREV_VERSION_9285) || \
 	(AR_SREV_9285(ah) && ((_ah)->ah_macRev >= AR_SREV_REVISION_9285_11)))
 #define	AR_SREV_9285_12(_ah)	\
-	(AR_SREV_9280(ah) && ((_ah)->ah_macRev == AR_SREV_REVISION_9285_12))
+	(AR_SREV_9285(ah) && ((_ah)->ah_macRev == AR_SREV_REVISION_9285_12))
 #define	AR_SREV_9285_12_OR_LATER(_ah)	\
 	(((_ah)->ah_macVersion > AR_SREV_VERSION_9285) || \
 	(AR_SREV_9285(ah) && ((_ah)->ah_macRev >= AR_SREV_REVISION_9285_12)))
+
+#define AR_SREV_9287(_ah) \
+        (((_ah)->ah_macVersion == AR_SREV_VERSION_9287))
+#define AR_SREV_9287_11_OR_LATER(_ah) \
+        (((_ah)->ah_macVersion >= AR_SREV_VERSION_9287))
+#define AR_SREV_9287_11(_ah) \
+        (((_ah)->ah_macVersion == AR_SREV_VERSION_9287) && \
+         ((_ah)->ah_macRev == AR_SREV_REVISION_9287_11))
+#define AR_SREV_9287_12(_ah) \
+        (((_ah)->ah_macVersion == AR_SREV_VERSION_9287) && \
+         ((_ah)->ah_macRev == AR_SREV_REVISION_9287_12))
+#define AR_SREV_9287_12_OR_LATER(_ah) \
+        (((_ah)->ah_macVersion > AR_SREV_VERSION_9287) || \
+         (((_ah)->ah_macVersion == AR_SREV_VERSION_9287) && \
+          ((_ah)->ah_macRev >= AR_SREV_REVISION_9287_12)))
+#define AR_SREV_9287_13_OR_LATER(_ah) \
+        (((_ah)->ah_macVersion > AR_SREV_VERSION_9287) || \
+         (((_ah)->ah_macVersion == AR_SREV_VERSION_9287) && \
+          ((_ah)->ah_macRev >= AR_SREV_REVISION_9287_13)))
+
+#define OLC_FOR_AR9280_20_LATER (AR_SREV_9280_20_OR_LATER(ah) && \
+                                 ath9k_hw_get_eeprom(ah, EEP_OL_PWRCTRL))
+#define OLC_FOR_AR9287_10_LATER (AR_SREV_9287_11_OR_LATER(ah) && \
+                                 ath9k_hw_get_eeprom(ah, EEP_OL_PWRCTRL))
 
 #define	AR_RADIO_SREV_MAJOR		0xf0
 #define	AR_RAD5133_SREV_MAJOR		0xc0
@@ -1231,6 +1260,9 @@ enum {
 
 #define	AR_AES_MUTE_MASK1	0x8060
 #define	AR_AES_MUTE_MASK1_SEQ	0x0000FFFF
+#define AR_AES_MUTE_MASK1_FC_MGMT 0xFFFF0000
+#define AR_AES_MUTE_MASK1_FC_MGMT_S 16
+
 
 #define	AR_GATED_CLKS		0x8064
 #define	AR_GATED_CLKS_TX	0x00000002

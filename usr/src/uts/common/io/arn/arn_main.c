@@ -446,7 +446,7 @@ arn_desc_alloc(dev_info_t *devinfo, struct arn_softc *sc)
 	sc->sc_desc = (struct ath_desc *)sc->sc_desc_dma.mem_va;
 
 	ds = sc->sc_desc;
-	ARN_DBG((ARN_DBG_INIT, "arn: arn_desc_alloc(): DMA map: "
+	ARN_DBG((ARN_DBG_INIT, "arn_desc_alloc(): DMA map: "
 	    "%p (%d) -> %p\n",
 	    sc->sc_desc, sc->sc_desc_dma.alength,
 	    sc->sc_desc_dma.cookie.dmac_address));
@@ -500,52 +500,6 @@ arn_desc_alloc(dev_info_t *devinfo, struct arn_softc *sc)
 #endif
 
 	return (DDI_SUCCESS);
-}
-
-static struct ath_rate_table *
-/* LINTED E_STATIC_UNUSED */
-arn_get_ratetable(struct arn_softc *sc, uint32_t mode)
-{
-	struct ath_rate_table *rate_table = NULL;
-
-	switch (mode) {
-	case IEEE80211_MODE_11A:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11A];
-		break;
-	case IEEE80211_MODE_11B:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11B];
-		break;
-	case IEEE80211_MODE_11G:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11G];
-		break;
-#ifdef ARB_11N
-	case IEEE80211_MODE_11NA_HT20:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11NA_HT20];
-		break;
-	case IEEE80211_MODE_11NG_HT20:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11NG_HT20];
-		break;
-	case IEEE80211_MODE_11NA_HT40PLUS:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11NA_HT40PLUS];
-		break;
-	case IEEE80211_MODE_11NA_HT40MINUS:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11NA_HT40MINUS];
-		break;
-	case IEEE80211_MODE_11NG_HT40PLUS:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11NG_HT40PLUS];
-		break;
-	case IEEE80211_MODE_11NG_HT40MINUS:
-		rate_table = sc->hw_rate_table[ATH9K_MODE_11NG_HT40MINUS];
-		break;
-#endif
-	default:
-		ARN_DBG((ARN_DBG_FATAL, "arn: arn_get_ratetable(): "
-		    "invalid mode %u\n", mode));
-		return (NULL);
-	}
-
-	return (rate_table);
-
 }
 
 static void
@@ -692,27 +646,27 @@ arn_setup_rates(struct arn_softc *sc, uint32_t mode)
 		break;
 #endif
 	default:
-		ARN_DBG((ARN_DBG_RATE, "arn: arn_get_ratetable(): "
+		ARN_DBG((ARN_DBG_RATE, "arn_get_ratetable(): "
 		    "invalid mode %u\n", mode));
 		break;
 	}
 	if (rate_table == NULL)
 		return;
 	if (rate_table->rate_cnt > ATH_RATE_MAX) {
-		ARN_DBG((ARN_DBG_RATE, "arn: arn_rate_setup(): "
+		ARN_DBG((ARN_DBG_RATE, "arn_rate_setup(): "
 		    "rate table too small (%u > %u)\n",
 		    rate_table->rate_cnt, IEEE80211_RATE_MAXSIZE));
 		maxrates = ATH_RATE_MAX;
 	} else
 		maxrates = rate_table->rate_cnt;
 
-	ARN_DBG((ARN_DBG_RATE, "arn: arn_rate_setup(): "
+	ARN_DBG((ARN_DBG_RATE, "arn_rate_setup(): "
 	    "maxrates is %d\n", maxrates));
 
 	rateset = &ic->ic_sup_rates[mode];
 	for (i = 0; i < maxrates; i++) {
 		rateset->ir_rates[i] = rate_table->info[i].dot11rate;
-		ARN_DBG((ARN_DBG_RATE, "arn: arn_rate_setup(): "
+		ARN_DBG((ARN_DBG_RATE, "arn_rate_setup(): "
 		    "%d\n", rate_table->info[i].dot11rate));
 	}
 	rateset->ir_nrates = (uint8_t)maxrates; /* ??? */
@@ -733,14 +687,14 @@ arn_setup_channels(struct arn_softc *sc)
 	    regclassids, ATH_REGCLASSIDS_MAX, &nregclass, CTRY_DEFAULT,
 	    B_FALSE, 1)) {
 		uint32_t rd = ah->ah_currentRD;
-		ARN_DBG((ARN_DBG_CHANNEL, "arn: arn_setup_channels(): "
+		ARN_DBG((ARN_DBG_CHANNEL, "arn_setup_channels(): "
 		    "unable to collect channel list; "
 		    "regdomain likely %u country code %u\n",
 		    rd, CTRY_DEFAULT));
 		return (EINVAL);
 	}
 
-	ARN_DBG((ARN_DBG_CHANNEL, "arn: arn_setup_channels(): "
+	ARN_DBG((ARN_DBG_CHANNEL, "arn_setup_channels(): "
 	    "number of channel is %d\n", nchan));
 
 	for (i = 0; i < nchan; i++) {
@@ -750,7 +704,7 @@ arn_setup_channels(struct arn_softc *sc)
 
 		if (index > IEEE80211_CHAN_MAX) {
 			ARN_DBG((ARN_DBG_CHANNEL,
-			    "arn: arn_setup_channels(): "
+			    "arn_setup_channels(): "
 			    "bad hal channel %d (%u/%x) ignored\n",
 			    index, c->channel, c->channelFlags));
 			continue;
@@ -762,7 +716,7 @@ arn_setup_channels(struct arn_softc *sc)
 			 * channels) right now
 			 */
 			ARN_DBG((ARN_DBG_CHANNEL,
-			    "arn: arn_setup_channels(): "
+			    "arn_setup_channels(): "
 			    "hal channel %d (%u/%x) "
 			    "cannot be handled, ignored\n",
 			    index, c->channel, c->channelFlags));
@@ -919,7 +873,7 @@ arn_set_channel(struct arn_softc *sc, struct ath9k_channel *hchan)
 		if (!stopped || (sc->sc_flags & SC_OP_FULL_RESET))
 			fastcc = B_FALSE;
 
-		ARN_DBG((ARN_DBG_CHANNEL, "arn: arn_set_channel(): "
+		ARN_DBG((ARN_DBG_CHANNEL, "arn_set_channel(): "
 		    "(%u MHz) -> (%u MHz), cflags:%x, chanwidth: %d\n",
 		    sc->sc_ah->ah_curchan->channel,
 		    hchan->channel, hchan->channelFlags, sc->tx_chan_width));
@@ -927,7 +881,7 @@ arn_set_channel(struct arn_softc *sc, struct ath9k_channel *hchan)
 		if (!ath9k_hw_reset(ah, hchan, sc->tx_chan_width,
 		    sc->sc_tx_chainmask, sc->sc_rx_chainmask,
 		    sc->sc_ht_extprotspacing, fastcc, &status)) {
-			ARN_DBG((ARN_DBG_FATAL, "arn: arn_set_channel(): "
+			ARN_DBG((ARN_DBG_FATAL, "arn_set_channel(): "
 			    "unable to reset channel %u (%uMhz) "
 			    "flags 0x%x hal status %u\n",
 			    ath9k_hw_mhz2ieee(ah, hchan->channel,
@@ -942,7 +896,7 @@ arn_set_channel(struct arn_softc *sc, struct ath9k_channel *hchan)
 		sc->sc_flags &= ~SC_OP_FULL_RESET;
 
 		if (arn_startrecv(sc) != 0) {
-			arn_problem("arn: arn_set_channel(): "
+			arn_problem("arn_set_channel(): "
 			    "unable to restart recv logic\n");
 			return (EIO);
 		}
@@ -976,7 +930,6 @@ arn_set_channel(struct arn_softc *sc, struct ath9k_channel *hchan)
  */
 static void
 arn_ani_calibrate(void *arg)
-
 {
 	ieee80211com_t *ic = (ieee80211com_t *)arg;
 	struct arn_softc *sc = (struct arn_softc *)ic;
@@ -997,7 +950,7 @@ arn_ani_calibrate(void *arg)
 	/* Long calibration runs independently of short calibration. */
 	if ((timestamp - sc->sc_ani.sc_longcal_timer) >= ATH_LONG_CALINTERVAL) {
 		longcal = B_TRUE;
-		ARN_DBG((ARN_DBG_CALIBRATE, "arn: "
+		ARN_DBG((ARN_DBG_CALIBRATE, ""
 		    "%s: longcal @%lu\n", __func__, drv_hztousec));
 		sc->sc_ani.sc_longcal_timer = timestamp;
 	}
@@ -1007,7 +960,7 @@ arn_ani_calibrate(void *arg)
 		if ((timestamp - sc->sc_ani.sc_shortcal_timer) >=
 		    ATH_SHORT_CALINTERVAL) {
 			shortcal = B_TRUE;
-			ARN_DBG((ARN_DBG_CALIBRATE, "arn: "
+			ARN_DBG((ARN_DBG_CALIBRATE, ""
 			    "%s: shortcal @%lu\n",
 			    __func__, drv_hztousec));
 			sc->sc_ani.sc_shortcal_timer = timestamp;
@@ -1017,7 +970,7 @@ arn_ani_calibrate(void *arg)
 		if ((timestamp - sc->sc_ani.sc_resetcal_timer) >=
 		    ATH_RESTART_CALINTERVAL) {
 			ath9k_hw_reset_calvalid(ah, ah->ah_curchan,
-						&sc->sc_ani.sc_caldone);
+			    &sc->sc_ani.sc_caldone);
 			if (sc->sc_ani.sc_caldone)
 				sc->sc_ani.sc_resetcal_timer = timestamp;
 		}
@@ -1048,14 +1001,14 @@ arn_ani_calibrate(void *arg)
 					    ath9k_hw_getchan_noise(ah,
 					    ah->ah_curchan);
 
-				ARN_DBG((ARN_DBG_CALIBRATE, "arn: "
+				ARN_DBG((ARN_DBG_CALIBRATE, ""
 				    "%s: calibrate chan %u/%x nf: %d\n",
 				    __func__,
 				    ah->ah_curchan->channel,
 				    ah->ah_curchan->channelFlags,
 				    sc->sc_ani.sc_noise_floor));
 			} else {
-				ARN_DBG((ARN_DBG_CALIBRATE, "arn: "
+				ARN_DBG((ARN_DBG_CALIBRATE, ""
 				    "%s: calibrate chan %u/%x failed\n",
 				    __func__,
 				    ah->ah_curchan->channel,
@@ -1145,12 +1098,12 @@ arn_isr(caddr_t arg)
 
 	if (status & ATH9K_INT_FATAL) {
 		/* need a chip reset */
-		ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+		ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 		    "ATH9K_INT_FATAL\n"));
 		goto reset;
 	} else if (status & ATH9K_INT_RXORN) {
 		/* need a chip reset */
-		ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+		ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 		    "ATH9K_INT_RXORN\n"));
 		goto reset;
 	} else {
@@ -1160,30 +1113,30 @@ arn_isr(caddr_t arg)
 			 * RXE bit is written, but it doesn't work
 			 * at least on older hardware revs.
 			 */
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_RXEOL\n"));
 			sc->sc_rxlink = NULL;
 		}
 		if (status & ATH9K_INT_TXURN) {
 			/* bump tx trigger level */
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_TXURN\n"));
 			(void) ath9k_hw_updatetxtriglevel(ah, B_TRUE);
 		}
 		/* XXX: optimize this */
 		if (status & ATH9K_INT_RX) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_RX\n"));
 			sc->sc_rx_pend = 1;
 			ddi_trigger_softintr(sc->sc_softint_id);
 		}
 		if (status & ATH9K_INT_TX) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_TX\n"));
 			if (ddi_taskq_dispatch(sc->sc_tq,
 			    arn_tx_int_proc, sc, DDI_NOSLEEP) !=
 			    DDI_SUCCESS) {
-				arn_problem("arn: arn_isr(): "
+				arn_problem("arn_isr(): "
 				    "No memory for tx taskq\n");
 				}
 			}
@@ -1202,14 +1155,14 @@ arn_isr(caddr_t arg)
 			 */
 			ath9k_hw_procmibevent(ah, &sc->sc_halstats);
 			(void) ath9k_hw_set_interrupts(ah, sc->sc_imask);
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_MIB\n"));
 		}
 #endif
 
 #ifdef ARN_ATH9K_INT_TIM_TIMER
 		if (status & ATH9K_INT_TIM_TIMER) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_TIM_TIMER\n"));
 			if (!(ah->ah_caps.hw_caps &
 			    ATH9K_HW_CAP_AUTOSLEEP)) {
@@ -1224,18 +1177,18 @@ arn_isr(caddr_t arg)
 #endif
 
 		if (status & ATH9K_INT_BMISS) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_BMISS\n"));
 #ifdef ARN_HW_BEACON_MISS_HANDLE
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "handle beacon mmiss by H/W mechanism\n"));
 			if (ddi_taskq_dispatch(sc->sc_tq, arn_bmiss_proc,
 			    sc, DDI_NOSLEEP) != DDI_SUCCESS) {
-				arn_problem("arn: arn_isr(): "
+				arn_problem("arn_isr(): "
 				    "No memory available for bmiss taskq\n");
 			}
 #else
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "handle beacon mmiss by S/W mechanism\n"));
 #endif /* ARN_HW_BEACON_MISS_HANDLE */
 		}
@@ -1245,14 +1198,14 @@ arn_isr(caddr_t arg)
 #ifdef ARN_ATH9K_INT_CST
 		/* carrier sense timeout */
 		if (status & ATH9K_INT_CST) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_CST\n"));
 			return (DDI_INTR_CLAIMED);
 		}
 #endif
 
 		if (status & ATH9K_INT_SWBA) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: arn_isr(): "
+			ARN_DBG((ARN_DBG_INTERRUPT, "arn_isr(): "
 			    "ATH9K_INT_SWBA\n"));
 			/* This will occur only in Host-AP or Ad-Hoc mode */
 			return (DDI_INTR_CLAIMED);
@@ -1295,13 +1248,13 @@ arn_reset(ieee80211com_t *ic)
 	if (!ath9k_hw_reset(ah, sc->sc_ah->ah_curchan, sc->tx_chan_width,
 	    sc->sc_tx_chainmask, sc->sc_rx_chainmask,
 	    sc->sc_ht_extprotspacing, B_FALSE, &status)) {
-		ARN_DBG((ARN_DBG_RESET, "arn: arn_reset(): "
+		ARN_DBG((ARN_DBG_RESET, "arn_reset(): "
 		    "unable to reset hardware; hal status %u\n", status));
 		error = EIO;
 	}
 
 	if (arn_startrecv(sc) != 0)
-		ARN_DBG((ARN_DBG_RESET, "arn: arn_reset(): "
+		ARN_DBG((ARN_DBG_RESET, "arn_reset(): "
 		    "unable to start recv logic\n"));
 
 	/*
@@ -1356,7 +1309,8 @@ static struct {
 	{ AR_SREV_VERSION_9100,		"9100" },
 	{ AR_SREV_VERSION_9160,		"9160" },
 	{ AR_SREV_VERSION_9280,		"9280" },
-	{ AR_SREV_VERSION_9285,		"9285" }
+	{ AR_SREV_VERSION_9285,		"9285" },
+	{ AR_SREV_VERSION_9287,		"9287" }
 };
 
 static struct {
@@ -1451,8 +1405,9 @@ arn_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 		return (0);
 
 	ostate = ic->ic_state;
-	ARN_DBG((ARN_DBG_INIT, "arn: arn_newstate(): "
-	    "%x -> %x!\n", ostate, nstate));
+	ARN_DBG((ARN_DBG_INIT, "arn_newstate(): " "%s -> %s\n", 
+		ieee80211_state_name[ostate],
+		ieee80211_state_name[nstate]));
 
 	ARN_LOCK(sc);
 
@@ -1486,7 +1441,7 @@ arn_newstate(ieee80211com_t *ic, enum ieee80211_state nstate, int arg)
 	pos = arn_get_channel(sc, ic->ic_curchan);
 
 	if (pos == -1) {
-		ARN_DBG((ARN_DBG_FATAL, "arn: "
+		ARN_DBG((ARN_DBG_FATAL, ""
 		    "%s: Invalid channel\n", __func__));
 		error = EINVAL;
 		ARN_UNLOCK(sc);
@@ -2086,7 +2041,7 @@ arn_open(struct arn_softc *sc)
 
 	pos = arn_get_channel(sc, curchan);
 	if (pos == -1) {
-		ARN_DBG((ARN_DBG_FATAL, "arn: "
+		ARN_DBG((ARN_DBG_FATAL, ""
 		    "%s: Invalid channel\n", __func__));
 		error = EINVAL;
 		goto error;
@@ -2116,7 +2071,7 @@ arn_open(struct arn_softc *sc)
 	    sc->tx_chan_width, sc->sc_tx_chainmask,
 	    sc->sc_rx_chainmask, sc->sc_ht_extprotspacing,
 	    B_FALSE, &status)) {
-		ARN_DBG((ARN_DBG_FATAL, "arn: "
+		ARN_DBG((ARN_DBG_FATAL, ""
 		    "%s: unable to reset hardware; hal status %u "
 		    "(freq %u flags 0x%x)\n", __func__, status,
 		    init_channel->channel, init_channel->channelFlags));
@@ -2139,7 +2094,7 @@ arn_open(struct arn_softc *sc)
 	 * here except setup the interrupt mask.
 	 */
 	if (arn_startrecv(sc) != 0) {
-		ARN_DBG((ARN_DBG_INIT, "arn: "
+		ARN_DBG((ARN_DBG_INIT, ""
 		    "%s: unable to start recv logic\n", __func__));
 		error = EIO;
 		goto error;
@@ -2183,7 +2138,7 @@ arn_open(struct arn_softc *sc)
 #endif
 	if (arn_chan2mode(init_channel) != sc->sc_curmode)
 		arn_setcurmode(sc, arn_chan2mode(init_channel));
-	ARN_DBG((ARN_DBG_INIT, "arn: "
+	ARN_DBG((ARN_DBG_INIT, ""
 	    "%s: current mode after arn_setcurmode is %d\n",
 	    __func__, sc->sc_curmode));
 
@@ -2315,6 +2270,11 @@ arn_m_start(void *arg)
 	struct arn_softc *sc = arg;
 	int err = 0;
 
+        /* XXX only for test */
+	if ((sc->sc_flags & SC_OP_STOP)) {
+		err = EAGAIN;
+		return (err);
+	}
 	ARN_LOCK(sc);
 
 	/*
@@ -2443,7 +2403,7 @@ arn_m_tx(void *arg, mblk_t *mp)
 	 * the xmit queue until we enter the RUN state.
 	 */
 	if (ic->ic_state != IEEE80211_S_RUN) {
-		ARN_DBG((ARN_DBG_XMIT, "arn: arn_m_tx(): "
+		ARN_DBG((ARN_DBG_XMIT, "arn_m_tx(): "
 		    "discard, state %u\n", ic->ic_state));
 		sc->sc_stats.ast_tx_discard++;
 		freemsgchain(mp);
@@ -2475,7 +2435,15 @@ arn_m_ioctl(void *arg, queue_t *wq, mblk_t *mp)
 	struct arn_softc *sc = arg;
 	int32_t err;
 
+	if ((sc->sc_flags & SC_OP_STOP)) {
+		err = EAGAIN;
+		return;
+	}
 	err = ieee80211_ioctl(&sc->sc_isc, wq, mp);
+        if (err) {
+                ARN_DBG((ARN_DBG_FATAL, "%s(): "
+                    "ieee80211_ioctl failed mblk* %lx\n", __func__,mp));
+	}
 
 	ARN_LOCK(sc);
 	if (err == ENETRESET) {
@@ -2581,16 +2549,16 @@ arn_pci_setup(struct arn_softc *sc)
 	pci_config_put16(sc->sc_cfg_handle, PCI_CONF_COMM, command);
 	command = pci_config_get16(sc->sc_cfg_handle, PCI_CONF_COMM);
 	if ((command & PCI_COMM_MAE) == 0) {
-		arn_problem("arn: arn_pci_setup(): "
+		arn_problem("arn_pci_setup(): "
 		    "failed to enable memory mapping\n");
 		return (EIO);
 	}
 	if ((command & PCI_COMM_ME) == 0) {
-		arn_problem("arn: arn_pci_setup(): "
+		arn_problem("arn_pci_setup(): "
 		    "failed to enable bus mastering\n");
 		return (EIO);
 	}
-	ARN_DBG((ARN_DBG_INIT, "arn: arn_pci_setup(): "
+	ARN_DBG((ARN_DBG_INIT, "arn_pci_setup(): "
 	    "set command reg to 0x%x \n", command));
 
 	return (0);
@@ -2628,8 +2596,6 @@ arn_setup_ht_cap(struct arn_softc *sc)
 #define	ATH9K_HT_CAP_MAXRXAMPDU_65536 0x3	/* 2 ^ 16 */
 #define	ATH9K_HT_CAP_MPDUDENSITY_8 0x6		/* 8 usec */
 
-	/* LINTED E_FUNC_SET_NOT_USED */
-	uint8_t tx_streams;
 	uint8_t rx_streams;
 
 	arn_ht_conf *ht_info = &sc->sc_ht_conf;
@@ -2646,7 +2612,6 @@ arn_setup_ht_cap(struct arn_softc *sc)
 
 	/* set up supported mcs set */
 	(void) memset(&ht_info->rx_mcs_mask, 0, sizeof (ht_info->rx_mcs_mask));
-	tx_streams = ISP2(sc->sc_ah->ah_caps.tx_chainmask) ? 1 : 2;
 	rx_streams = ISP2(sc->sc_ah->ah_caps.rx_chainmask) ? 1 : 2;
 
 	ht_info->rx_mcs_mask[0] = 0xff;
@@ -2681,12 +2646,12 @@ arn_overwrite_11n_rateset(struct arn_softc *sc)
 
 	ieee80211_rateset_11n.rs_nrates = (uint8_t)mcs_count;
 
-	ARN_DBG((ARN_DBG_RATE, "arn_overwrite_11n_rateset(): "
-	    "MCS rate set supported by this station is as follows:\n"));
+	ARN_DBG((ARN_DBG_RATE, "%s: "
+	    "MCS rate set supported by this station is as follows:\n",__func__));
 
 	for (i = 0; i < ieee80211_rateset_11n.rs_nrates; i++) {
-		ARN_DBG((ARN_DBG_RATE, "MCS rate %d is %d\n",
-		    i, ieee80211_rateset_11n.rs_rates[i]));
+		ARN_DBG((ARN_DBG_RATE, "%s: MCS rate %d is %d\n",
+		    __func__,i, ieee80211_rateset_11n.rs_rates[i]));
 	}
 
 }
@@ -2798,9 +2763,9 @@ arn_update_chainmask(struct arn_softc *sc)
 		sc->sc_rx_chainmask = 1;
 	}
 
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+	ARN_DBG((ARN_DBG_ATTACH, "%s(): "
 	    "tx_chainmask = %d, rx_chainmask = %d\n",
-	    sc->sc_tx_chainmask, sc->sc_rx_chainmask));
+	    __func__,sc->sc_tx_chainmask, sc->sc_rx_chainmask));
 }
 
 static int
@@ -2863,7 +2828,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	instance = ddi_get_instance(devinfo);
 	if (ddi_soft_state_zalloc(arn_soft_state_p, instance) != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: "
+		ARN_DBG((ARN_DBG_ATTACH, ""
 		    "%s: Unable to alloc softstate\n", __func__));
 		return (DDI_FAILURE);
 	}
@@ -2885,7 +2850,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	err = pci_config_setup(devinfo, &sc->sc_cfg_handle);
 	if (err != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "pci_config_setup() failed"));
 		goto attach_fail0;
 	}
@@ -2898,7 +2863,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	vendor_id = pci_config_get16(sc->sc_cfg_handle, PCI_CONF_VENID);
 	device_id = pci_config_get16(sc->sc_cfg_handle, PCI_CONF_DEVID);
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): vendor 0x%x, "
+	ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): vendor 0x%x, "
 	    "device id 0x%x, cache size %d\n",
 	    vendor_id, device_id,
 	    pci_config_get8(sc->sc_cfg_handle, PCI_CONF_CACHE_LINESZ)));
@@ -2910,17 +2875,17 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	err = ddi_regs_map_setup(devinfo, 1,
 	    &sc->mem, 0, 0, &arn_reg_accattr, &sc->sc_io_handle);
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+	ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 	    "regs map1 = %x err=%d\n", sc->mem, err));
 	if (err != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "ddi_regs_map_setup() failed"));
 		goto attach_fail1;
 	}
 
 	ah = ath9k_hw_attach(device_id, sc, sc->mem, &status);
 	if (ah == NULL) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to attach hw: H/W status %u\n",
 		    status));
 		goto attach_fail2;
@@ -2932,7 +2897,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/* Get the hardware key cache size. */
 	sc->sc_keymax = ah->ah_caps.keycache_size;
 	if (sc->sc_keymax > ATH_KEYMAX) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "Warning, using only %u entries in %u key cache\n",
 		    ATH_KEYMAX, sc->sc_keymax));
 		sc->sc_keymax = ATH_KEYMAX;
@@ -2960,7 +2925,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/* Collect the channel list using the default country code */
 	err = arn_setup_channels(sc);
 	if (err == EINVAL) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "ERR:arn_setup_channels\n"));
 		goto attach_fail3;
 	}
@@ -2989,14 +2954,14 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/* Setup tx/rx descriptors */
 	err = arn_desc_alloc(devinfo, sc);
 	if (err != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "failed to allocate descriptors: %d\n", err));
 		goto attach_fail3;
 	}
 
 	if ((sc->sc_tq = ddi_taskq_create(devinfo, "ath_taskq", 1,
 	    TASKQ_DEFAULTPRI, 0)) == NULL) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "ERR:ddi_taskq_create\n"));
 		goto attach_fail4;
 	}
@@ -3010,7 +2975,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 #ifdef ARN_IBSS
 	sc->sc_beaconq = arn_beaconq_setup(ah);
 	if (sc->sc_beaconq == (-1)) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to setup a beacon xmit queue\n"));
 		goto attach_fail4;
 	}
@@ -3018,7 +2983,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 #ifdef ARN_HOSTAP
 	sc->sc_cabq = arn_txq_setup(sc, ATH9K_TX_QUEUE_CAB, 0);
 	if (sc->sc_cabq == NULL) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to setup CAB xmit queue\n"));
 		goto attach_fail4;
 	}
@@ -3033,22 +2998,22 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	/* Setup data queues */
 	/* NB: ensure BK queue is the lowest priority h/w queue */
 	if (!arn_tx_setup(sc, ATH9K_WME_AC_BK)) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to setup xmit queue for BK traffic\n"));
 		goto attach_fail4;
 	}
 	if (!arn_tx_setup(sc, ATH9K_WME_AC_BE)) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to setup xmit queue for BE traffic\n"));
 		goto attach_fail4;
 	}
 	if (!arn_tx_setup(sc, ATH9K_WME_AC_VI)) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to setup xmit queue for VI traffic\n"));
 		goto attach_fail4;
 	}
 	if (!arn_tx_setup(sc, ATH9K_WME_AC_VO)) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "unable to setup xmit queue for VO traffic\n"));
 		goto attach_fail4;
 	}
@@ -3108,7 +3073,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 
 	sc->sc_tx_chainmask = 1;
 	sc->sc_rx_chainmask = 1;
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+	ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 	    "tx_chainmask = %d, rx_chainmask = %d\n",
 	    sc->sc_tx_chainmask, sc->sc_rx_chainmask));
 
@@ -3171,7 +3136,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	ic->ic_xmit = arn_tx;
 	ieee80211_attach(ic);
 
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+	ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 	    "ic->ic_curchan->ich_freq: %d\n", ic->ic_curchan->ich_freq));
 
 	/* different instance has different WPA door */
@@ -3216,21 +3181,21 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	err = ddi_add_softintr(devinfo, DDI_SOFTINT_LOW,
 	    &sc->sc_softint_id, NULL, 0, arn_softint_handler, (caddr_t)sc);
 	if (err != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "ddi_add_softintr() failed....\n"));
 		goto attach_fail5;
 	}
 
 	if (ddi_get_iblock_cookie(devinfo, 0, &sc->sc_iblock)
 	    != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "Can not get iblock cookie for INT\n"));
 		goto attach_fail6;
 	}
 
 	if (ddi_add_intr(devinfo, 0, NULL, NULL, arn_isr,
 	    (caddr_t)sc) != DDI_SUCCESS) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "Can not set intr for ARN driver\n"));
 		goto attach_fail6;
 	}
@@ -3243,14 +3208,14 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	wd.wd_secalloc = WIFI_SEC_NONE;
 	IEEE80211_ADDR_COPY(wd.wd_bssid, ic->ic_bss->in_bssid);
 
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+	ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 	    "IEEE80211_ADDR_COPY(wd.wd_bssid, ic->ic_bss->in_bssid)"
 	    "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x\n",
 	    wd.wd_bssid[0], wd.wd_bssid[1], wd.wd_bssid[2],
 	    wd.wd_bssid[3], wd.wd_bssid[4], wd.wd_bssid[5]));
 
 	if ((macp = mac_alloc(MAC_VERSION)) == NULL) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "MAC version mismatch\n"));
 		goto attach_fail7;
 	}
@@ -3268,7 +3233,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	err = mac_register(macp, &ic->ic_mach);
 	mac_free(macp);
 	if (err != 0) {
-		ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
 		    "mac_register err %x\n", err));
 		goto attach_fail7;
 	}
@@ -3279,7 +3244,7 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	err = ddi_create_minor_node(devinfo, strbuf, S_IFCHR,
 	    instance + 1, DDI_NT_NET_WIFI, 0);
 	if (err != DDI_SUCCESS)
-		ARN_DBG((ARN_DBG_ATTACH, "WARN: arn: arn_attach(): "
+		ARN_DBG((ARN_DBG_ATTACH, "WARN: arn_attach(): "
 		    "Create minor node failed - %d\n", err));
 
 	/* Notify link is down now */
@@ -3289,18 +3254,19 @@ arn_attach(dev_info_t *devinfo, ddi_attach_cmd_t cmd)
 	bzero(sc->sc_mcast_refs, sizeof (sc->sc_mcast_refs));
 	bzero(sc->sc_mcast_hash, sizeof (sc->sc_mcast_hash));
 
-	ARN_DBG((ARN_DBG_ATTACH, "arn: arn_attach(): "
-	    "Atheros AR%s MAC/BB Rev:%x "
-	    "AR%s RF Rev:%x: mem=0x%lx\n",
-	    arn_mac_bb_name(ah->ah_macVersion),
+	ARN_DBG((ARN_DBG_ATTACH, "arn_attach(): "
+	    "Atheros AR%s MAC/BB Rev:%x AR%s RF Rev:%x: sc=0x%lx mem=0x%lx\n",
+	    arn_mac_bb_name(ah->ah_macVersion), 
 	    ah->ah_macRev,
-	    arn_rf_name((ah->ah_analog5GhzRev & AR_RADIO_SREV_MAJOR)),
+	    arn_rf_name((ah->ah_analog5GhzRev & AR_RADIO_SREV_MAJOR)), 
 	    ah->ah_phyRev,
-	    (unsigned long)sc->mem));
+	    (unsigned long) sc, (unsigned long)sc->mem));
 
 	/* XXX: hardware will not be ready until arn_open() being called */
 	sc->sc_flags |= SC_OP_INVALID;
 	sc->sc_isrunning = 0;
+	/* XXX only for test, block arn_m_Start, arn_m_ioctl */
+	// sc->sc_flags |= SC_OP_STOP;
 
 	return (DDI_SUCCESS);
 
@@ -3501,7 +3467,7 @@ DDI_DEFINE_STREAM_OPS(arn_dev_ops, nulldev, nulldev, arn_attach, arn_detach,
 
 static struct modldrv arn_modldrv = {
 	&mod_driverops, /* Type of module.  This one is a driver */
-	"arn-Atheros 9000 series driver:2.0", /* short description */
+	"Atheros 9000 series driver", /* short description */
 	&arn_dev_ops /* driver specific ops */
 };
 

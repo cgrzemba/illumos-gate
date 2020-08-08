@@ -819,6 +819,8 @@ enum PROT_MODE {
 #define	SC_OP_RFKILL_REGISTERED	BIT(11)
 #define	SC_OP_RFKILL_SW_BLOCKED	BIT(12)
 #define	SC_OP_RFKILL_HW_BLOCKED	BIT(13)
+/* block arn_m_start for tests */
+#define	SC_OP_STOP		BIT(14)
 
 /* HT  */
 typedef	struct ht_conf {
@@ -1012,6 +1014,20 @@ void
 arn_iowrite32(struct ath_hal *ah, uint32_t reg_offset, uint32_t val);
 unsigned int
 arn_ioread32(struct ath_hal *ah, uint32_t reg_offset);
+
+/*
+ * Deduce if the host cpu has big- or litt-endian byte order.
+ */
+static __inline__ int
+isBigEndian(void)
+{
+        union {
+                int32_t i;
+                char c[4];
+        } u;
+        u.i = 1;
+        return (u.c[0] == 0);
+}
 
 #ifdef __cplusplus
 }

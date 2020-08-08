@@ -158,6 +158,7 @@ extern "C" {
 
 typedef int ath_hal_cmp_t(const void *, const void *);
 
+/*
 struct reg_dmn_pair_mapping {
 	uint16_t regDmnEnum;
 	uint16_t regDmn5GHz;
@@ -167,7 +168,7 @@ struct reg_dmn_pair_mapping {
 	uint64_t pscanMask;
 	uint16_t singleCC;
 };
-
+*/
 struct ccmap {
 	char isoName[3];
 	uint16_t countryCode;

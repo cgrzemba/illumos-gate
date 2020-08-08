@@ -956,10 +956,16 @@ ath9k_regd_check_channel(struct ath_hal *ah, const struct ath9k_channel *c)
 		if (d == 0) {
 			if ((cc->channelFlags & CHAN_FLAGS) == flags) {
 				if ((cc->privFlags & CHANNEL_INTERFERENCE) &&
-				    (cc->privFlags & CHANNEL_DFS))
+				    (cc->privFlags & CHANNEL_DFS)){ 
+					ARN_DBG((ARN_DBG_REGULATORY, "arn: "
+		    				"%s: return NULL", __func__));
 					return (NULL);
-				else
+				} else {
+					ARN_DBG((ARN_DBG_REGULATORY, "arn: "
+		    				"%s: return channel %u/0x%x\n", __func__,
+		    				cc->channel, cc->channelFlags));
 					return (cc);
+				}
 			}
 			d = flags - (cc->channelFlags & CHAN_FLAGS);
 		}

@@ -116,15 +116,16 @@ ath9k_hw_wait(struct ath_hal *ah, uint32_t reg, uint32_t mask, uint32_t val)
 {
 	int i;
 
+	/* wait 1ms, but AH_TIMEOUT is 100ms */
 	for (i = 0; i < (AH_TIMEOUT / AH_TIME_QUANTUM); i++) {
 		if ((REG_READ(ah, reg) & mask) == val)
 			return (B_TRUE);
 
-		drv_usecwait(AH_TIME_QUANTUM);
+		drv_usecwait(AH_TIME_QUANTUM*10);
 	}
-	ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_wait(): "
-	    "timeout on reg 0x%x: 0x%08x & 0x%08x != 0x%08x\n",
-	    reg, REG_READ(ah, reg), mask, val));
+	ARN_DBG((ARN_DBG_HW, "ath9k_hw_wait(): "
+	    "timeout (%dus) on reg 0x%x: 0x%08x & 0x%08x != 0x%08x\n",
+	    AH_TIMEOUT, reg, REG_READ(ah, reg), mask, val));
 
 	return (B_FALSE);
 }
@@ -209,7 +210,7 @@ ath9k_hw_computetxtime(struct ath_hal *ah,
 		}
 		break;
 	default:
-		arn_problem("arn: "
+		arn_problem(""
 		    "%s: unknown phy %u (rate ix %u)\n", __func__,
 		    rates->info[rateix].phy, rateix);
 		txTime = 0;
@@ -376,7 +377,7 @@ ath9k_hw_chip_test(struct ath_hal *ah)
 			rdData = REG_READ(ah, addr);
 			if (rdData != wrData) {
 				ARN_DBG((ARN_DBG_REG_IO,
-				    "arn: ath9k_hw_chip_test(): "
+				    "ath9k_hw_chip_test(): "
 				    "address test failed "
 				    "addr: 0x%08x - wr:0x%08x != rd:0x%08x\n",
 				    addr, wrData, rdData));
@@ -390,7 +391,7 @@ ath9k_hw_chip_test(struct ath_hal *ah)
 			rdData = REG_READ(ah, addr);
 			if (wrData != rdData) {
 				ARN_DBG((ARN_DBG_REG_IO,
-				    "arn: ath9k_hw_chip_test(): "
+				    "ath9k_hw_chip_test(): "
 				    "address test failed "
 				    "addr: 0x%08x - wr:0x%08x != rd:0x%08x\n",
 				    addr, wrData, rdData));
@@ -420,6 +421,8 @@ ath9k_hw_devname(uint16_t devid)
 		return ("Atheros 9280");
 	case AR9285_DEVID_PCIE:
 		return ("Atheros 9285");
+	case AR9287_DEVID_PCIE:
+		return ("Atheros 9287");
 	}
 
 	return (NULL);
@@ -497,7 +500,7 @@ ath9k_hw_newstate(uint16_t device_id, struct arn_softc *sc, caddr_t mem,
 	ahp = (struct ath_hal_5416 *)
 	    kmem_zalloc(sizeof (struct ath_hal_5416), KM_SLEEP);
 	if (ahp == NULL) {
-		ARN_DBG((ARN_DBG_ANY, "arn: ath9k_hw_newstate(): "
+		ARN_DBG((ARN_DBG_ANY, "ath9k_hw_newstate(): "
 		    "failed to alloc mem for ahp\n"));
 		*status = ENOMEM;
 		return (NULL);
@@ -545,7 +548,7 @@ ath9k_hw_rfattach(struct ath_hal *ah)
 
 	rfStatus = ath9k_hw_init_rf(ah, &ecode);
 	if (!rfStatus) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_rfattach(): "
+		ARN_DBG((ARN_DBG_HW, "ath9k_hw_rfattach(): "
 		    "RF setup failed, status %u\n", ecode));
 
 		return (ecode);
@@ -573,7 +576,7 @@ ath9k_hw_rf_claim(struct ath_hal *ah)
 		break;
 	default:
 		ARN_DBG((ARN_DBG_CHANNEL,
-		    "arn: ath9k_hw_rf_claim(): "
+		    "ath9k_hw_rf_claim(): "
 		    "5G Radio Chip Rev 0x%02X "
 		    "is not supported by this driver\n",
 		    ah->ah_analog5GhzRev));
@@ -602,7 +605,7 @@ ath9k_hw_init_macaddr(struct ath_hal *ah)
 		ahp->ah_macaddr[2 * i + 1] = eeval & 0xff;
 	}
 	if (sum == 0 || sum == 0xffff * 3) {
-		ARN_DBG((ARN_DBG_EEPROM, "arn: ath9k_hw_init_macaddr(): "
+		ARN_DBG((ARN_DBG_EEPROM, "ath9k_hw_init_macaddr(): "
 		    "mac address read failed: %pM\n",
 		    ahp->ah_macaddr));
 
@@ -673,8 +676,9 @@ ath9k_hw_post_attach(struct ath_hal *ah)
 {
 	int ecode;
 
+	/* writes and read back 100byte on 2 addresses */
 	if (!ath9k_hw_chip_test(ah)) {
-		ARN_DBG((ARN_DBG_REG_IO, "arn: ath9k_hw_post_attach(): "
+		ARN_DBG((ARN_DBG_REG_IO, "ath9k_hw_post_attach(): "
 		    "hardware self-test failed\n"));
 
 	}
@@ -720,15 +724,15 @@ ath9k_hw_do_attach(uint16_t device_id, struct arn_softc *sc,
 		ahp->ah_intrMitigation = B_TRUE;
 
 	if (!ath9k_hw_set_reset_reg(ah, ATH9K_RESET_POWER_ON)) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_set_reset_reg(): "
-		    "couldn't reset chip \n"));
+		ARN_DBG((ARN_DBG_HW, "%s(): "
+		    "couldn't reset chip \n", __func__));
 		ecode = EIO;
 		goto bad;
 	}
 
 	if (!ath9k_hw_setpower(ah, ATH9K_PM_AWAKE)) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_setpower(): "
-		    "couldn't wakeup chip \n"));
+		ARN_DBG((ARN_DBG_HW, "%s(): "
+		    "couldn't wakeup chip \n", __func__));
 		ecode = EIO;
 		goto bad;
 	}
@@ -743,18 +747,18 @@ ath9k_hw_do_attach(uint16_t device_id, struct arn_softc *sc,
 			    SER_REG_MODE_OFF;
 		}
 	}
-	ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_do_attach(): "
+	ARN_DBG((ARN_DBG_HW, "%s(): "
 	    "serialize_regmode is %d\n",
-	    ah->ah_config.serialize_regmode));
+	    __func__, ah->ah_config.serialize_regmode));
 
 	if ((ah->ah_macVersion != AR_SREV_VERSION_5416_PCI) &&
 	    (ah->ah_macVersion != AR_SREV_VERSION_5416_PCIE) &&
 	    (ah->ah_macVersion != AR_SREV_VERSION_9160) &&
 	    (!AR_SREV_9100(ah)) && (!AR_SREV_9280(ah)) &&
-	    (!AR_SREV_9285(ah))) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_do_attach(): "
+	    (!AR_SREV_9285(ah)) && (!AR_SREV_9287(ah))) {
+		ARN_DBG((ARN_DBG_HW, "%s(): "
 		    "Mac Chip Rev 0x%02x.%x is not supported by this driver\n",
-		    ah->ah_macVersion, ah->ah_macRev));
+		    __func__, ah->ah_macVersion, ah->ah_macRev));
 		ecode = ENOTSUP;
 		goto bad;
 	}
@@ -798,11 +802,26 @@ ath9k_hw_do_attach(uint16_t device_id, struct arn_softc *sc,
 			    ~ATH9K_ANI_NOISE_IMMUNITY_LEVEL;
 		}
 	}
-	ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_do_attach(): "
-	    "This Mac Chip Rev 0x%02x.%x is \n",
-	    ah->ah_macVersion, ah->ah_macRev));
+	ARN_DBG((ARN_DBG_HW, "%s(): "
+	    "This Mac Chip Rev is 0x%02x.%x\n",
+	    __func__, ah->ah_macVersion, ah->ah_macRev));
 
-	if (AR_SREV_9285_12_OR_LATER(ah)) {
+        if (AR_SREV_9287_11_OR_LATER(ah)) {
+                INIT_INI_ARRAY(&ahp->ah_iniModes, ar9287Modes_9287_1_1,
+                                ARRAY_SIZE(ar9287Modes_9287_1_1), 6);
+                INIT_INI_ARRAY(&ahp->ah_iniCommon, ar9287Common_9287_1_1,
+                                ARRAY_SIZE(ar9287Common_9287_1_1), 2);
+                if (ah->ah_config.pcie_clock_req)
+                        INIT_INI_ARRAY(&ahp->ah_iniPcieSerdes,
+                        ar9287PciePhy_clkreq_off_L1_9287_1_1,
+                        ARRAY_SIZE(ar9287PciePhy_clkreq_off_L1_9287_1_1), 2);
+                else
+                        INIT_INI_ARRAY(&ahp->ah_iniPcieSerdes,
+                        ar9287PciePhy_clkreq_always_on_L1_9287_1_1,
+                        ARRAY_SIZE(ar9287PciePhy_clkreq_always_on_L1_9287_1_1),
+                                        2);
+
+	} else if (AR_SREV_9285_12_OR_LATER(ah)) {
 		INIT_INI_ARRAY(&ahp->ah_iniModes, ar9285Modes_9285_1_2,
 		    ARRAY_SIZE(ar9285Modes_9285_1_2), 6);
 
@@ -977,16 +996,25 @@ ath9k_hw_do_attach(uint16_t device_id, struct arn_softc *sc,
 	else
 		ath9k_hw_disablepcie(ah);
 
+	/* check for eeprom */
 	ecode = ath9k_hw_post_attach(ah);
 	if (ecode != 0)
 		goto bad;
 
 	/* rxgain table */
-	if (AR_SREV_9280_20(ah))
+        if (AR_SREV_9287_11_OR_LATER(ah))
+                INIT_INI_ARRAY(&ahp->ah_iniModesRxGain,
+                ar9287Modes_rx_gain_9287_1_1,
+                ARRAY_SIZE(ar9287Modes_rx_gain_9287_1_1), 6);
+        else if (AR_SREV_9280_20(ah))
 		ath9k_hw_init_rxgain_ini(ah);
 
 	/* txgain table */
-	if (AR_SREV_9280_20(ah))
+        if (AR_SREV_9287_11_OR_LATER(ah)) 
+                INIT_INI_ARRAY(&ahp->ah_iniModesTxGain,
+                ar9287Modes_tx_gain_9287_1_1,
+                ARRAY_SIZE(ar9287Modes_tx_gain_9287_1_1), 6);
+        else if (AR_SREV_9280_20(ah))
 		ath9k_hw_init_txgain_ini(ah);
 
 	if (ah->ah_devid == AR9280_DEVID_PCI) {
@@ -1006,15 +1034,15 @@ ath9k_hw_do_attach(uint16_t device_id, struct arn_softc *sc,
 	}
 
 	if (!ath9k_hw_fill_cap_info(ah)) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_do_attach(): "
-		    "failed ath9k_hw_fill_cap_info\n"));
+		ARN_DBG((ARN_DBG_HW, "%s(): "
+		    "failed ath9k_hw_fill_cap_info\n", __func__));
 		goto bad;
 	}
 
 	ecode = ath9k_hw_init_macaddr(ah);
 	if (ecode != 0) {
-		ARN_DBG((ARN_DBG_HW, "arn: "
-		    "%s: failed initializing mac address\n",
+		ARN_DBG((ARN_DBG_HW,
+		    "%s(): failed initializing mac address\n",
 		    __func__));
 		goto bad;
 	}
@@ -1216,7 +1244,7 @@ ath9k_hw_set_ack_timeout(struct ath_hal *ah, uint32_t us)
 	struct ath_hal_5416 *ahp = AH5416(ah);
 
 	if (us > ath9k_hw_mac_to_usec(ah, MS(0xffffffff, AR_TIME_OUT_ACK))) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_set_ack_timeout(): "
+		ARN_DBG((ARN_DBG_HW, "ath9k_hw_set_ack_timeout(): "
 		    "bad ack timeout %u\n", us));
 
 		ahp->ah_acktimeout = (uint32_t)-1;
@@ -1235,7 +1263,7 @@ ath9k_hw_set_cts_timeout(struct ath_hal *ah, uint32_t us)
 	struct ath_hal_5416 *ahp = AH5416(ah);
 
 	if (us > ath9k_hw_mac_to_usec(ah, MS(0xffffffff, AR_TIME_OUT_CTS))) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_set_cts_timeout(): "
+		ARN_DBG((ARN_DBG_HW, "ath9k_hw_set_cts_timeout(): "
 		    "bad cts timeout %u\n", us));
 
 		ahp->ah_ctstimeout = (uint32_t)-1;
@@ -1255,7 +1283,7 @@ ath9k_hw_set_global_txtimeout(struct ath_hal *ah, uint32_t tu)
 
 	if (tu > 0xFFFF) {
 		ARN_DBG((ARN_DBG_XMIT,
-		    "arn: ath9k_hw_set_global_txtimeout(): "
+		    "ath9k_hw_set_global_txtimeout(): "
 		    "ath9k_hw_set_global_txtimeout\n", tu));
 
 		ahp->ah_globaltxtimeout = (uint32_t)-1;
@@ -1272,7 +1300,7 @@ ath9k_hw_init_user_settings(struct ath_hal *ah)
 {
 	struct ath_hal_5416 *ahp = AH5416(ah);
 
-	ARN_DBG((ARN_DBG_ANY, "arn: ath9k_hw_init_user_settings(): "
+	ARN_DBG((ARN_DBG_ANY, "ath9k_hw_init_user_settings(): "
 	    "--AP ahp->ah_miscMode 0x%x\n", ahp->ah_miscMode));
 
 	if (ahp->ah_miscMode != 0)
@@ -1320,6 +1348,7 @@ ath9k_hw_attach(uint16_t device_id, struct arn_softc *sc,
 	case AR9280_DEVID_PCI:
 	case AR9280_DEVID_PCIE:
 	case AR9285_DEVID_PCIE:
+	case AR9287_DEVID_PCIE:
 		ah = ath9k_hw_do_attach(device_id, sc, mem, error);
 		break;
 	default:
@@ -1361,13 +1390,13 @@ ath9k_hw_def_ini_fixup(struct ath_hal *ah,
 	case AR9280_DEVID_PCI:
 		if (reg == 0x7894) {
 			ARN_DBG((ARN_DBG_ANY,
-			    "arn: ath9k_hw_ini_fixup(): "
+			    "ath9k_hw_ini_fixup(): "
 			    "ini VAL: %x  EEPROM: %x\n",
 			    value, (pBase->version & 0xff)));
 
 			if ((pBase->version & 0xff) > 0x0a) {
 				ARN_DBG((ARN_DBG_ANY,
-				    "arn: ath9k_hw_ini_fixup(): "
+				    "ath9k_hw_ini_fixup(): "
 				    "PWDCLKIND: %d\n",
 				    pBase->pwdclkind));
 
@@ -1377,12 +1406,12 @@ ath9k_hw_def_ini_fixup(struct ath_hal *ah,
 				    AR_AN_TOP2_PWDCLKIND_S);
 			} else {
 				ARN_DBG((ARN_DBG_ANY,
-				    "arn: ath9k_hw_ini_fixup(): "
+				    "ath9k_hw_ini_fixup(): "
 				    "PWDCLKIND Earlier Rev\n"));
 			}
 
 			ARN_DBG((ARN_DBG_ANY,
-			    "arn: ath9k_hw_ini_fixup(): "
+			    "ath9k_hw_ini_fixup(): "
 			    "final ini VAL: %x\n\n", value));
 		}
 		break;
@@ -1437,7 +1466,7 @@ ath9k_hw_process_ini(struct ath_hal *ah,
 		break;
 
 	default:
-		ARN_DBG((ARN_DBG_CHANNEL, "arn: "
+		ARN_DBG((ARN_DBG_CHANNEL, ""
 		    "%s: err: unknow chan->chanmode\n", __func__));
 		return (EINVAL);
 	}
@@ -1525,6 +1554,7 @@ ath9k_hw_process_ini(struct ath_hal *ah,
 	ath9k_hw_override_ini(ah, chan);
 	ath9k_hw_set_regs(ah, chan, macmode);
 	ath9k_hw_init_chain_masks(ah);
+        ath9k_olc_init(ah);
 
 	status = ath9k_hw_set_txpower(ah, chan,
 	    ath9k_regd_get_ctl(ah, chan),
@@ -1533,14 +1563,14 @@ ath9k_hw_process_ini(struct ath_hal *ah,
 	    min((uint32_t)MAX_RATE_POWER,
 	    (uint32_t)ah->ah_powerLimit));
 	if (status != 0) {
-		ARN_DBG((ARN_DBG_ANY, "arn: ath9k_hw_process_ini(): "
+		ARN_DBG((ARN_DBG_ANY, "ath9k_hw_process_ini(): "
 		    "%s: error init'ing transmit power\n", __func__));
 
 		return (EIO);
 	}
 
 	if (!ath9k_hw_set_rf_regs(ah, chan, freqIndex)) {
-		ARN_DBG((ARN_DBG_ANY, "arn: ath9k_hw_process_ini(): "
+		ARN_DBG((ARN_DBG_ANY, "ath9k_hw_process_ini(): "
 		    "%s: ar5416SetRfRegs failed\n", __func__));
 
 		return (EIO);
@@ -1720,7 +1750,7 @@ ath9k_hw_set_reset(struct ath_hal *ah, int type)
 
 	REG_WRITE(ah, (uint16_t)(AR_RTC_RC), 0);
 	if (!ath9k_hw_wait(ah, (uint16_t)(AR_RTC_RC), AR_RTC_RC_M, 0)) {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_set_reset(): "
+		ARN_DBG((ARN_DBG_HW, "ath9k_hw_set_reset(): "
 		    "RTC stuck in MAC reset\n"));
 
 		return (B_FALSE);
@@ -1751,7 +1781,7 @@ ath9k_hw_set_reset_power_on(struct ath_hal *ah)
 	    AR_RTC_STATUS_M,
 	    AR_RTC_STATUS_ON)) {
 		ARN_DBG((ARN_DBG_HW,
-		    "arn: ath9k_hw_set_reset_power_on(): "
+		    "ath9k_hw_set_reset_power_on(): "
 		    "RTC not waking up \n"));
 
 		return (B_FALSE);
@@ -1837,8 +1867,8 @@ static struct ath9k_channel *
 ath9k_hw_check_chan(struct ath_hal *ah, struct ath9k_channel *chan)
 {
 	if (!(IS_CHAN_2GHZ(chan) ^ IS_CHAN_5GHZ(chan))) {
-		ARN_DBG((ARN_DBG_CHANNEL, "arn: "
-		    "%s: invalid channel %u/0x%x; not marked as "
+		ARN_DBG((ARN_DBG_CHANNEL,
+		    "%s(): invalid channel %u/0x%x; not marked as "
 		    "2GHz or 5GHz\n",
 		    __func__, chan->channel, chan->channelFlags));
 		return (NULL);
@@ -1848,8 +1878,8 @@ ath9k_hw_check_chan(struct ath_hal *ah, struct ath9k_channel *chan)
 	    !IS_CHAN_B(chan) &&
 	    !IS_CHAN_HT20(chan) &&
 	    !IS_CHAN_HT40(chan)) {
-		ARN_DBG((ARN_DBG_CHANNEL, "arn: "
-		    "%s: invalid channel %u/0x%x; not marked as "
+		ARN_DBG((ARN_DBG_CHANNEL,
+		    "%s(): invalid channel %u/0x%x; not marked as "
 		    "OFDM or CCK or HT20 or HT40PLUS or HT40MINUS\n",
 		    __func__, chan->channel, chan->channelFlags));
 
@@ -1867,8 +1897,8 @@ ath9k_hw_channel_change(struct ath_hal *ah,
 
 	for (qnum = 0; qnum < AR_NUM_QCU; qnum++) {
 		if (ath9k_hw_numtxpending(ah, qnum)) {
-			ARN_DBG((ARN_DBG_QUEUE, "arn: "
-			    "%s: Transmit frames pending on queue %d\n",
+			ARN_DBG((ARN_DBG_QUEUE,
+			    "%s(): Transmit frames pending on queue %d\n",
 			    __func__, qnum));
 
 			return (B_FALSE);
@@ -1878,8 +1908,8 @@ ath9k_hw_channel_change(struct ath_hal *ah,
 	REG_WRITE(ah, AR_PHY_RFBUS_REQ, AR_PHY_RFBUS_REQ_EN);
 	if (!ath9k_hw_wait(ah, AR_PHY_RFBUS_GRANT, AR_PHY_RFBUS_GRANT_EN,
 	    AR_PHY_RFBUS_GRANT_EN)) {
-		ARN_DBG((ARN_DBG_HW, "arn: "
-		    "%s: Could not kill baseband RX\n", __func__));
+		ARN_DBG((ARN_DBG_HW,
+		    "%s(): Could not kill baseband RX\n", __func__));
 
 		return (B_FALSE);
 	}
@@ -1888,14 +1918,14 @@ ath9k_hw_channel_change(struct ath_hal *ah,
 
 	if (AR_SREV_9280_10_OR_LATER(ah)) {
 		if (!(ath9k_hw_ar9280_set_channel(ah, chan))) {
-			ARN_DBG((ARN_DBG_CHANNEL, "arn: "
-			    "%s: failed to set channel\n", __func__));
+			ARN_DBG((ARN_DBG_CHANNEL,
+			    "%s(): failed to set channel\n", __func__));
 			return (B_FALSE);
 		}
 	} else {
 		if (!(ath9k_hw_set_channel(ah, chan))) {
-			ARN_DBG((ARN_DBG_CHANNEL, "arn: "
-			    "%s: failed to set channel\n", __func__));
+			ARN_DBG((ARN_DBG_CHANNEL,
+			    "%s(): failed to set channel\n", __func__));
 
 			return (B_FALSE);
 		}
@@ -1907,8 +1937,8 @@ ath9k_hw_channel_change(struct ath_hal *ah,
 	    chan->maxRegTxPower * 2,
 	    min((uint32_t)MAX_RATE_POWER,
 	    (uint32_t)ah->ah_powerLimit)) != 0) {
-		ARN_DBG((ARN_DBG_EEPROM, "arn: "
-		    "%s: error init'ing transmit power\n", __func__));
+		ARN_DBG((ARN_DBG_EEPROM,
+		    "%s(): error init'ing transmit power\n", __func__));
 
 		return (B_FALSE);
 	}
@@ -2415,23 +2445,24 @@ ath9k_hw_reset(struct ath_hal *ah, struct ath9k_channel *chan,
 	}
 
 	if (ath9k_hw_check_chan(ah, chan) == NULL) {
-		ARN_DBG((ARN_DBG_ANY, "arn: "
-		    "%s: invalid channel %u/0x%x; no mapping\n",
+		ARN_DBG((ARN_DBG_ANY,
+		    "%s(): invalid channel %u/0x%x; no mapping\n",
 		    __func__, chan->channel, chan->channelFlags));
 		ecode = EINVAL;
 		goto bad;
 	}
 
 	if (!ath9k_hw_setpower(ah, ATH9K_PM_AWAKE)) {
-		ARN_DBG((ARN_DBG_ANY, "arn: "
+		ARN_DBG((ARN_DBG_ANY, ""
 		    "%s: ath9k_hw_setpower failed!!!\n", __func__));
 		ecode = EIO;
 		goto bad;
 	}
 
-	if (curchan)
+	if (curchan && !ahp->ah_chipFullSleep)
 		(void) ath9k_hw_getnf(ah, curchan);
 
+        /* XXX should we reset calibration data? ath9k_init_nfcal_hist_buffer(ah, chan); */ 
 	if (bChannelChange &&
 	    (ahp->ah_chipFullSleep != B_TRUE) &&
 	    (ah->ah_curchan != NULL) &&
@@ -2461,13 +2492,13 @@ ath9k_hw_reset(struct ath_hal *ah, struct ath9k_channel *chan,
 	ath9k_hw_mark_phy_inactive(ah);
 
 	if (!ath9k_hw_chip_reset(ah, chan)) {
-		ARN_DBG((ARN_DBG_RESET, "arn: "
-		    "%s: chip reset failed\n", __func__));
+		ARN_DBG((ARN_DBG_RESET,
+		    "%s(): chip reset failed\n", __func__));
 		ecode = EINVAL;
 		goto bad;
 	}
 
-	if (AR_SREV_9280(ah)) {
+	if (AR_SREV_9280_20_OR_LATER(ah)) {
 		REG_SET_BIT(ah, AR_GPIO_INPUT_EN_VAL,
 		    AR_GPIO_JTAG_DISABLE);
 		if (is_set(ATH9K_MODE_11A, ah->ah_caps.wireless_modes)) {
@@ -2484,6 +2515,14 @@ ath9k_hw_reset(struct ath_hal *ah, struct ath9k_channel *chan,
 		ecode = EINVAL;
 		goto bad;
 	}
+        /* Setup MFP options for CCMP */
+        if (AR_SREV_9280_20_OR_LATER(ah)) {
+                /* Mask Retry(b11), PwrMgt(b12), MoreData(b13) to 0 in mgmt
+                 * frames when constructing CCMP AAD. */
+                REG_RMW_FIELD(ah, AR_AES_MUTE_MASK1, AR_AES_MUTE_MASK1_FC_MGMT,
+                              0xc7ff);
+                /* XXX ah->sw_mgmt_crypto = 0; */
+        } 
 
 	if (IS_CHAN_OFDM(chan) || IS_CHAN_HT(chan))
 		ath9k_hw_set_delta_slope(ah, chan);
@@ -2494,8 +2533,8 @@ ath9k_hw_reset(struct ath_hal *ah, struct ath9k_channel *chan,
 		ath9k_hw_spur_mitigate(ah, chan);
 
 	if (!ath9k_hw_eeprom_set_board_values(ah, chan)) {
-		ARN_DBG((ARN_DBG_EEPROM, "arn: "
-		    "%s: error setting board options\n", __func__));
+		ARN_DBG((ARN_DBG_EEPROM,
+		    "%s(): error setting board values\n", __func__));
 		ecode = EIO;
 		goto bad;
 	}
@@ -2525,16 +2564,16 @@ ath9k_hw_reset(struct ath_hal *ah, struct ath9k_channel *chan,
 
 	if (AR_SREV_9280_10_OR_LATER(ah)) {
 		if (!(ath9k_hw_ar9280_set_channel(ah, chan))) {
-			ARN_DBG((ARN_DBG_FATAL, "arn: "
-			    "%s: ath9k_hw_ar9280_set_channel failed!!!\n",
+			ARN_DBG((ARN_DBG_FATAL,
+			    "%s(): ath9k_hw_ar9280_set_channel failed!!!\n",
 			    __func__));
 			ecode = EIO;
 			goto bad;
 		}
 	} else {
 		if (!(ath9k_hw_set_channel(ah, chan))) {
-			ARN_DBG((ARN_DBG_FATAL, "arn: "
-			    "%s: ath9k_hw_set_channel failed!!!\n", __func__));
+			ARN_DBG((ARN_DBG_FATAL,
+			    "%s(): ath9k_hw_set_channel failed!!!\n", __func__));
 			ecode = EIO;
 			goto bad;
 		}
@@ -2588,21 +2627,21 @@ ath9k_hw_reset(struct ath_hal *ah, struct ath9k_channel *chan,
 		uint32_t mask;
 		mask = REG_READ(ah, AR_CFG);
 		if (mask & (AR_CFG_SWRB | AR_CFG_SWTB | AR_CFG_SWRG)) {
-			ARN_DBG((ARN_DBG_RESET, "arn: "
-			    "%s CFG Byte Swap Set 0x%x\n",
+			ARN_DBG((ARN_DBG_RESET,
+			    "%s(): CFG Byte Swap Set 0x%x\n",
 			    __func__, mask));
 		} else {
 			mask = INIT_CONFIG_STATUS |
 			    AR_CFG_SWRB | AR_CFG_SWTB;
 			REG_WRITE(ah, AR_CFG, mask);
-			ARN_DBG((ARN_DBG_RESET, "arn: "
-			    "%s Setting CFG 0x%x\n",
+			ARN_DBG((ARN_DBG_RESET,
+			    "%s(): Setting CFG 0x%x\n",
 			    __func__, REG_READ(ah, AR_CFG)));
 		}
-	} else {
-		ARN_DBG((ARN_DBG_HW, "arn: ath9k_hw_keyreset(): "
-		    "#ifdef __BIG_ENDIAN \n"));
 #ifdef __BIG_ENDIAN
+	} else {
+		ARN_DBG((ARN_DBG_HW, "%s(): "
+		    "#ifdef __BIG_ENDIAN \n",__func__));
 		REG_WRITE(ah, AR_CFG, AR_CFG_SWTD | AR_CFG_SWRD);
 #endif
 	}
@@ -2622,7 +2661,7 @@ ath9k_hw_keyreset(struct ath_hal *ah, uint16_t entry)
 	uint32_t keyType;
 
 	if (entry >= ah->ah_caps.keycache_size) {
-		ARN_DBG((ARN_DBG_KEYCACHE, "arn: ath9k_hw_keyreset(): "
+		ARN_DBG((ARN_DBG_KEYCACHE, "ath9k_hw_keyreset(): "
 		    "entry %u out of range\n", entry));
 
 		return (B_FALSE);
@@ -2662,8 +2701,8 @@ ath9k_hw_keysetmac(struct ath_hal *ah, uint16_t entry, const uint8_t *mac)
 	uint32_t macHi, macLo;
 
 	if (entry >= ah->ah_caps.keycache_size) {
-		ARN_DBG((ARN_DBG_KEYCACHE, "arn: "
-		    "%s: entry %u out of range\n", __func__, entry));
+		ARN_DBG((ARN_DBG_KEYCACHE,
+		    "%s(): entry %u out of range\n", __func__, entry));
 		return (B_FALSE);
 	}
 
@@ -2698,8 +2737,8 @@ ath9k_hw_set_keycache_entry(struct ath_hal *ah, uint16_t entry,
 	struct ath_hal_5416 *ahp = AH5416(ah);
 
 	if (entry >= pCap->keycache_size) {
-		ARN_DBG((ARN_DBG_KEYCACHE, "arn: "
-		    "%s: entry %u out of range\n", __func__, entry));
+		ARN_DBG((ARN_DBG_KEYCACHE,
+		    "%s(): entry %u out of range\n", __func__, entry));
 		return (B_FALSE);
 	}
 
@@ -2709,8 +2748,8 @@ ath9k_hw_set_keycache_entry(struct ath_hal *ah, uint16_t entry,
 		break;
 	case ATH9K_CIPHER_AES_CCM:
 		if (!(pCap->hw_caps & ATH9K_HW_CAP_CIPHER_AESCCM)) {
-			ARN_DBG((ARN_DBG_KEYCACHE, "arn: "
-			    "%s: AES-CCM not supported by "
+			ARN_DBG((ARN_DBG_KEYCACHE,
+			    "%s(): AES-CCM not supported by "
 			    "mac rev 0x%x\n", __func__,
 			    ah->ah_macRev));
 			return (B_FALSE);
@@ -2721,16 +2760,16 @@ ath9k_hw_set_keycache_entry(struct ath_hal *ah, uint16_t entry,
 		keyType = AR_KEYTABLE_TYPE_TKIP;
 		if (ATH9K_IS_MIC_ENABLED(ah) &&
 		    entry + 64 >= pCap->keycache_size) {
-			ARN_DBG((ARN_DBG_KEYCACHE, "arn: "
-			    "%s: entry %u inappropriate for TKIP\n",
+			ARN_DBG((ARN_DBG_KEYCACHE,
+			    "%s(): entry %u inappropriate for TKIP\n",
 			    __func__, entry));
 			return (B_FALSE);
 		}
 		break;
 	case ATH9K_CIPHER_WEP:
 		if (k->kv_len < ATH9K_LEN_WEP40) {
-			ARN_DBG((ARN_DBG_KEYCACHE, "arn: "
-			    "%s: WEP key length %u too small\n",
+			ARN_DBG((ARN_DBG_KEYCACHE,
+			    "%s(): WEP key length %u too small\n",
 			    __func__, k->kv_len));
 			return (B_FALSE);
 		}
@@ -2745,8 +2784,8 @@ ath9k_hw_set_keycache_entry(struct ath_hal *ah, uint16_t entry,
 		keyType = AR_KEYTABLE_TYPE_CLR;
 		break;
 	default:
-		ARN_DBG((ARN_DBG_KEYCACHE, "arn: "
-		    "%s: cipher %u not supported\n", __func__,
+		ARN_DBG((ARN_DBG_KEYCACHE,
+		    "%s(): cipher %u not supported\n", __func__,
 		    k->kv_type));
 		return (B_FALSE);
 	}
@@ -2896,7 +2935,7 @@ ath9k_hw_set_power_awake(struct ath_hal *ah, int setChip)
 		}
 		if (i == 0) {
 			ARN_DBG((ARN_DBG_POWER_MGMT,
-			    "arn: ath9k_hw_set_power_awake(): "
+			    "ath9k_hw_set_power_awake(): "
 			    "Failed to wakeup in %uus\n",
 			    POWER_UP_TIME / 20));
 
@@ -2920,7 +2959,7 @@ ath9k_hw_setpower(struct ath_hal *ah, enum ath9k_power_mode mode)
 		"UNDEFINED"
 	};
 	int status = B_TRUE, setChip = B_TRUE;
-	ARN_DBG((ARN_DBG_ANY, "arn: ath9k_hw_setpower(): "
+	ARN_DBG((ARN_DBG_ANY, "ath9k_hw_setpower(): "
 	    "%s -> %s (%s)\n",
 	    modes[ahp->ah_powerMode],
 	    modes[mode],
@@ -2938,7 +2977,7 @@ ath9k_hw_setpower(struct ath_hal *ah, enum ath9k_power_mode mode)
 		ath9k_set_power_network_sleep(ah, setChip);
 		break;
 	default:
-		ARN_DBG((ARN_DBG_ANY, "arn: ath9k_hw_setpower(): "
+		ARN_DBG((ARN_DBG_ANY, "ath9k_hw_setpower(): "
 		    "unknown power mode %u\n", mode));
 		return (B_FALSE);
 	}
@@ -3119,8 +3158,8 @@ ath9k_hw_getisr(struct ath_hal *ah, enum ath9k_int *masked)
 		}
 
 		if (isr & AR_ISR_RXORN) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: "
-			    "%s: receive FIFO overrun interrupt\n", __func__));
+			ARN_DBG((ARN_DBG_INTERRUPT, 
+			    "%s(): receive FIFO overrun interrupt\n", __func__));
 		}
 
 		if (!AR_SREV_9100(ah)) {
@@ -3144,19 +3183,19 @@ ath9k_hw_getisr(struct ath_hal *ah, enum ath9k_int *masked)
 
 		if (fatal_int) {
 			if (sync_cause & AR_INTR_SYNC_HOST1_FATAL) {
-				ARN_DBG((ARN_DBG_INTERRUPT, "arn: "
-				    "%s: received PCI FATAL interrupt\n",
+				ARN_DBG((ARN_DBG_INTERRUPT,
+				    "%s(): received PCI FATAL interrupt\n",
 				    __func__));
 			}
 			if (sync_cause & AR_INTR_SYNC_HOST1_PERR) {
-				ARN_DBG((ARN_DBG_INTERRUPT, "arn: "
-				    "%s: received PCI PERR interrupt\n",
+				ARN_DBG((ARN_DBG_INTERRUPT,
+				    "%s(): received PCI PERR interrupt\n",
 				    __func__));
 			}
 		}
 		if (sync_cause & AR_INTR_SYNC_RADM_CPL_TIMEOUT) {
-			ARN_DBG((ARN_DBG_INTERRUPT, "arn: "
-			    "%s: AR_INTR_SYNC_RADM_CPL_TIMEOUT\n",
+			ARN_DBG((ARN_DBG_INTERRUPT,
+			    "%s(): AR_INTR_SYNC_RADM_CPL_TIMEOUT\n",
 			    __func__));
 
 			REG_WRITE(ah, AR_RC, AR_RC_HOSTIF);
@@ -3164,8 +3203,8 @@ ath9k_hw_getisr(struct ath_hal *ah, enum ath9k_int *masked)
 			*masked |= ATH9K_INT_FATAL;
 		}
 		if (sync_cause & AR_INTR_SYNC_LOCAL_TIMEOUT) {
-			ARN_DBG((ARN_DBG_ANY, "arn: "
-			    "%s: AR_INTR_SYNC_LOCAL_TIMEOUT\n",
+			ARN_DBG((ARN_DBG_ANY, 
+				"%s(): AR_INTR_SYNC_LOCAL_TIMEOUT\n",
 			    __func__));
 		}
 
@@ -3191,12 +3230,12 @@ ath9k_hw_set_interrupts(struct ath_hal *ah, enum ath9k_int ints)
 	struct ath9k_hw_capabilities *pCap = &ah->ah_caps;
 
 	ARN_DBG((ARN_DBG_INTERRUPT,
-	    "arn: ath9k_hw_set_interrupts(): "
+	    "ath9k_hw_set_interrupts(): "
 	    "0x%x => 0x%x\n", omask, ints));
 
 	if (omask & ATH9K_INT_GLOBAL) {
 		ARN_DBG((ARN_DBG_INTERRUPT,
-		    "arn: ath9k_hw_set_interrupts(): "
+		    "ath9k_hw_set_interrupts(): "
 		    "disable IER\n"));
 
 		REG_WRITE(ah, AR_IER, AR_IER_DISABLE);
@@ -3385,14 +3424,10 @@ ath9k_hw_set_sta_beacon_timers(struct ath_hal *ah,
 	else
 		nextTbtt = bs->bs_nexttbtt;
 
-	ARN_DBG((ARN_DBG_BEACON, "arn: "
-	    "%s: next DTIM %d\n", __func__, bs->bs_nextdtim));
-	ARN_DBG((ARN_DBG_BEACON, "arn: "
-	    "%s: next beacon %d\n", __func__, nextTbtt));
-	ARN_DBG((ARN_DBG_BEACON, "arn: "
-	    "%s: beacon period %d\n", __func__, beaconintval));
-	ARN_DBG((ARN_DBG_BEACON, "arn: "
-	    "%s: DTIM period %d\n", __func__, dtimperiod));
+	ARN_DBG((ARN_DBG_BEACON, "%s: next DTIM %d\n", __func__, bs->bs_nextdtim));
+	ARN_DBG((ARN_DBG_BEACON, "%s: next beacon %d\n", __func__, nextTbtt));
+	ARN_DBG((ARN_DBG_BEACON, "%s: beacon period %d\n", __func__, beaconintval));
+	ARN_DBG((ARN_DBG_BEACON, "%s: DTIM period %d\n", __func__, dtimperiod));
 
 	REG_WRITE(ah, AR_NEXT_DTIM,
 	    TU_TO_USEC(bs->bs_nextdtim - SLEEP_SLOP));
@@ -4090,8 +4125,7 @@ ath9k_hw_reset_tsf(struct ath_hal *ah)
 	while (REG_READ(ah, AR_SLP32_MODE) & AR_SLP32_TSF_WRITE_STATUS) {
 		count++;
 		if (count > 10) {
-			ARN_DBG((ARN_DBG_HW, "arn: "
-			    "%s: AR_SLP32_TSF_WRITE_STATUS limit exceeded\n",
+			ARN_DBG((ARN_DBG_HW, "%s: AR_SLP32_TSF_WRITE_STATUS limit exceeded\n",
 			    __func__));
 
 			break;
@@ -4120,8 +4154,7 @@ ath9k_hw_setslottime(struct ath_hal *ah, uint32_t us)
 	struct ath_hal_5416 *ahp = AH5416(ah);
 
 	if (us < ATH9K_SLOT_TIME_9 || us > ath9k_hw_mac_to_usec(ah, 0xffff)) {
-		ARN_DBG((ARN_DBG_HW, "arn: "
-		    "%s: bad slot time %u\n",  __func__, us));
+		ARN_DBG((ARN_DBG_HW, "%s: bad slot time %u\n",  __func__, us));
 
 		ahp->ah_slottime = (uint32_t)-1;
 		return (B_FALSE);

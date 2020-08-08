@@ -28,6 +28,8 @@ extern "C" {
 
 #define	FUDGE	2
 
+#include "arn_eeprom.h"
+
 enum ath9k_band {
 	ATH9K_BAND_2GHZ,
 	ATH9K_BAND_5GHZ,
@@ -42,6 +44,7 @@ enum ath9k_band {
 #define	AR9280_DEVID_PCI	0x0029
 #define	AR9280_DEVID_PCIE	0x002a
 #define	AR9285_DEVID_PCIE	0x002b
+#define	AR9287_DEVID_PCIE	0x002e
 
 #define	AR5416_AR9100_DEVID	0x000b
 
@@ -491,6 +494,7 @@ struct ath9k_channel {
 #ifdef ARN_NF_PER_CHAN
 	struct ath9k_nfcal_hist nfCalHist[NUM_NF_READINGS];
 #endif
+        int nfcal_pending;
 };
 
 #define	IS_CHAN_A(_c) ((((_c)->channelFlags & CHANNEL_A) == CHANNEL_A) || \
@@ -524,6 +528,32 @@ struct ath9k_channel {
 	((((_c)->channelFlags & CHANNEL_5GHZ) != 0) &&	\
 	(((_c)->channel % 20) != 0) &&			\
 	(((_c)->channel % 10) != 0))
+
+struct reg_dmn_pair_mapping {
+        uint16_t regDmnEnum;
+        uint16_t regDmn5GHz;
+        uint16_t regDmn2GHz;
+        uint32_t flags5GHz;
+        uint32_t flags2GHz;
+        uint64_t pscanMask;
+        uint16_t singleCC;
+/*
+        uint16_t regDmnEnum;
+        uint16_t reg_5ghz_ctl;
+        uint16_t reg_2ghz_ctl;
+*/
+};
+
+struct ath_regulatory {
+        char alpha2[2];
+        uint16_t country_code;
+        uint16_t max_power_level;
+        uint32_t tp_scale;
+        uint16_t current_rd;
+        uint16_t current_rd_ext;
+        int16_t power_limit;
+        struct reg_dmn_pair_mapping *regpair;
+};
 
 struct ath9k_keyval {
 	uint8_t kv_type;
@@ -582,7 +612,7 @@ enum ath9k_cipher {
 #define	CTL_2GHT40	7
 #define	CTL_5GHT40	8
 
-#define	AR_EEPROM_MAC(i)	(0x1d+(i))
+/* #define	AR_EEPROM_MAC(i)	(0x1d+(i)) */
 
 #define	AR_EEPROM_RFSILENT_GPIO_SEL	0x001c
 #define	AR_EEPROM_RFSILENT_GPIO_SEL_S	2
@@ -729,6 +759,7 @@ enum ser_reg_mode {
 };
 
 #define	AR_PHY_CCA_MAX_GOOD_VALUE		-85
+#define AR_PHY_CCA_MAX_GOOD_VAL_9287_2GHZ    -110
 #define	AR_PHY_CCA_MAX_HIGH_VALUE		-62
 #define	AR_PHY_CCA_MIN_BAD_VALUE		-121
 #define	AR_PHY_CCA_FILTERWINDOW_LENGTH_INIT	3
@@ -785,17 +816,35 @@ enum {
 
 #define	AH_USE_EEPROM	0x1
 
+/*
+ * Hardware Access Layer (HAL) API.
+ *
+ * Clients of the HAL call ath_hal_attach to obtain a reference to an
+ * ath_hal structure for use with the device.  Hardware-related operations
+ * that follow must call back into the HAL through interface, supplying
+ * the reference as the first parameter.  Note that before using the
+ * reference returned by ath_hal_attach the caller should verify the
+ * ABI version number.
+ */
+
 struct ath_hal {
 	uint32_t ah_magic;
 	uint16_t ah_devid;
 	uint16_t ah_subvendorid;
+#ifdef BSD
+        HAL_SOFTC       ah_sc;          /* back pointer to driver/os state */
+        HAL_BUS_TAG     ah_st;          /* params for register r+w */
+        HAL_BUS_HANDLE  ah_sh;
+        HAL_CTRY_CODE   ah_countryCode;
+#endif
 	uint32_t ah_macVersion;
 	uint16_t ah_macRev;
 	uint16_t ah_phyRev;
+        /* NB: when only one radio is present the rev is in 5Ghz */
 	uint16_t ah_analog5GhzRev;
 	uint16_t ah_analog2GhzRev;
 
-	caddr_t	 ah_sh;
+	caddr_t	 ah_sh; /* base device address */
 	struct arn_softc *ah_sc;
 	enum ath9k_opmode ah_opmode;
 	struct ath9k_ops_config ah_config;
@@ -824,6 +873,10 @@ struct ath_hal {
 	uint32_t ah_rfkill_polarity;
 
 	struct ath9k_nfcal_hist nfCalHist[NUM_NF_READINGS];
+
+        void            *ah_eeprom;             /* opaque EEPROM state */
+        uint16_t        ah_eeversion;           /* EEPROM version */
+        struct ath_regulatory regulatory;
 };
 
 struct chan_centers {
@@ -833,6 +886,28 @@ struct chan_centers {
 };
 
 struct ath_rate_table;
+
+/*
+#define   AH_PRIVATE(_ah) ((struct ath_hal_private *)(_ah))
+ * The ``private area'' follows immediately after the ``public area''
+ * in the data structure returned by ath_hal_attach.  Private data are
+ * used by device-independent code such as the regulatory domain support.
+ * In general, code within the HAL should never depend on data in the
+ * public area.  Instead any public data needed internally should be
+ * shadowed here.
+ *
+ * When declaring a device-specific ath_hal data structure this structure
+ * is assumed to at the front; e.g.
+ *
+ *      struct ath_hal_5212 {
+ *              struct ath_hal_private  ah_priv;
+ *              ...
+ *      };
+ *
+ * It might be better to manage the method pointers in this structure
+ * using an indirect pointer to a read-only data structure but this would
+ * disallow class-style method overriding.
+ */
 
 /* Helpers */
 
@@ -1081,6 +1156,25 @@ void ath9k_hw_rxena(struct ath_hal *ah);
 void ath9k_hw_startpcureceive(struct ath_hal *ah);
 void ath9k_hw_stoppcurecv(struct ath_hal *ah);
 boolean_t ath9k_hw_stopdmarecv(struct ath_hal *ah);
+
+boolean_t ath9k_hw_eeprom_read(struct ath_hal *ah, uint32_t off, uint16_t *data);
+boolean_t ath9k_hw_nvram_read(struct ath_hal *common, uint32_t off, uint16_t *data);
+
+void ath9k_hw_get_legacy_target_powers(struct ath_hal *ah,
+    struct ath9k_channel *chan,
+    struct cal_target_power_leg *powInfo,
+    uint16_t numChannels,
+    struct cal_target_power_leg *pNewPower,
+    uint16_t numRates, boolean_t isExtTarget);
+uint16_t ath9k_hw_get_max_edge_power(uint16_t freq,
+    struct cal_ctl_edges *pRdEdgesPower,
+    boolean_t is2GHz, int num_band_edges);
+void ath9k_hw_get_target_powers(struct ath_hal *ah,
+    struct ath9k_channel *chan,
+    struct cal_target_power_ht *powInfo,
+    uint16_t numChannels,
+    struct cal_target_power_ht *pNewPower,
+    uint16_t numRates, boolean_t isHt40Target);
 
 #ifdef __cplusplus
 }

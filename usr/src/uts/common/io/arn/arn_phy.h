@@ -37,7 +37,12 @@ boolean_t ath9k_hw_set_rf_regs(struct ath_hal *ah,
 void ath9k_hw_decrease_chain_power(struct ath_hal *ah,
     struct ath9k_channel *chan);
 boolean_t ath9k_hw_init_rf(struct ath_hal *ah, int *status);
+void ath9k_hw_analog_shift_rmw(struct ath_hal *ah, uint32_t reg, uint32_t mask,
+    uint32_t shift, uint32_t val);
 
+
+/* BSD #define AR_PHY_BASE                     0x1c5800 */
+/* #define AR_PHY_TIMING_CTRL4             (AR_PHY_BASE + 0x0120) */
 #define	AR_PHY_BASE	0x9800
 #define	AR_PHY(_n)	(AR_PHY_BASE + ((_n)<<2))
 
@@ -59,6 +64,7 @@ boolean_t ath9k_hw_init_rf(struct ath_hal *ah, int *status);
 #define	AR_PHY_FC_ENABLE_DAC_FIFO	0x00000800
 #define	AR_PHY_TEST2	0x9808
 
+
 #define	AR_PHY_TIMING2			0x9810
 #define	AR_PHY_TIMING3			0x9814
 #define	AR_PHY_TIMING3_DSC_MAN		0xFFFE0000
@@ -76,6 +82,11 @@ boolean_t ath9k_hw_init_rf(struct ath_hal *ah, int *status);
 #define	AR_PHY_ACTIVE_DIS		0x00000000
 
 #define	AR_PHY_RF_CTL2			0x9824
+#define AR_PHY_TX_FRAME_TO_DATA_START   0x000000FF
+#define AR_PHY_TX_FRAME_TO_DATA_START_S 0
+#define AR_PHY_TX_FRAME_TO_PA_ON        0x0000FF00
+#define AR_PHY_TX_FRAME_TO_PA_ON_S      8
+
 #define	AR_PHY_TX_END_DATA_START	0x000000FF
 #define	AR_PHY_TX_END_DATA_START_S	0
 #define	AR_PHY_TX_END_PA_ON		0x0000FF00
@@ -194,6 +205,9 @@ boolean_t ath9k_hw_init_rf(struct ath_hal *ah, int *status);
 #define	AR_PHY_RX_DELAY_DELAY		0x00003FFF
 
 #define	AR_PHY_TIMING_CTRL4(_i)	(0x9920 + ((_i) << 12))
+#define AR_PHY_TIMING_CTRL4_CHAIN(_i) \
+        (AR_PHY_TIMING_CTRL4 + ((_i) << 12))
+
 #define	AR_PHY_TIMING_CTRL4_IQCORR_Q_Q_COFF		0x01F
 #define	AR_PHY_TIMING_CTRL4_IQCORR_Q_Q_COFF_S		0
 #define	AR_PHY_TIMING_CTRL4_IQCORR_Q_I_COFF		0x7E0
@@ -226,6 +240,69 @@ boolean_t ath9k_hw_init_rf(struct ath_hal *ah, int *status);
 #define	AR_PHY_TXPWRADJ_CCK_GAIN_DELTA_S  	6
 #define	AR_PHY_TXPWRADJ_CCK_PCDAC_INDEX		0x00FC0000
 #define	AR_PHY_TXPWRADJ_CCK_PCDAC_INDEX_S	18
+
+#define AR_PHY_TX_PWRCTRL4       0xa264
+#define AR_PHY_TX_PWRCTRL_PD_AVG_VALID     0x00000001
+#define AR_PHY_TX_PWRCTRL_PD_AVG_VALID_S   0
+#define AR_PHY_TX_PWRCTRL_PD_AVG_OUT       0x000001FE
+#define AR_PHY_TX_PWRCTRL_PD_AVG_OUT_S     1
+
+#define AR_PHY_TPCRG5   0xA26C
+#define AR_PHY_TPCRG5_PD_GAIN_OVERLAP       0x0000000F
+#define AR_PHY_TPCRG5_PD_GAIN_OVERLAP_S     0
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_1    0x000003F0
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_1_S  4
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_2    0x0000FC00
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_2_S  10
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_3    0x003F0000
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_3_S  16
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_4    0x0FC00000
+#define AR_PHY_TPCRG5_PD_GAIN_BOUNDARY_4_S  22
+
+#define AR_PHY_TPCRG1   0xA258
+#define AR_PHY_TPCRG1_NUM_PD_GAIN   0x0000c000
+#define AR_PHY_TPCRG1_NUM_PD_GAIN_S 14
+#define AR_PHY_TPCRG1_PD_GAIN_1    0x00030000
+#define AR_PHY_TPCRG1_PD_GAIN_1_S  16
+#define AR_PHY_TPCRG1_PD_GAIN_2    0x000C0000
+#define AR_PHY_TPCRG1_PD_GAIN_2_S  18
+#define AR_PHY_TPCRG1_PD_GAIN_3    0x00300000
+#define AR_PHY_TPCRG1_PD_GAIN_3_S  20
+
+#define AR_PHY_TX_PWRCTRL6_0     0xa270
+#define AR_PHY_TX_PWRCTRL6_1     0xb270
+#define AR_PHY_TX_PWRCTRL_ERR_EST_MODE     0x03000000
+#define AR_PHY_TX_PWRCTRL_ERR_EST_MODE_S   24
+
+#define AR_PHY_CH0_TX_PWRCTRL11  0xa398
+#define AR_PHY_CH1_TX_PWRCTRL11  0xb398
+
+#define AR_PHY_POWER_TX_RATE5   0xA38C
+#define AR_PHY_POWER_TX_RATE6   0xA390
+
+#define AR_PHY_CAL_CHAINMASK    0xA39C
+
+#define AR_PHY_POWER_TX_SUB     0xA3C8
+#define AR_PHY_POWER_TX_RATE1   0x9934
+#define AR_PHY_POWER_TX_RATE2   0x9938
+#define AR_PHY_POWER_TX_RATE3   0xA234
+#define AR_PHY_POWER_TX_RATE4   0xA238
+#define AR_PHY_POWER_TX_RATE5   0xA38C
+#define AR_PHY_POWER_TX_RATE6   0xA390
+#define AR_PHY_POWER_TX_RATE7   0xA3CC
+#define AR_PHY_POWER_TX_RATE8   0xA3D0
+#define AR_PHY_POWER_TX_RATE9   0xA3D4
+
+#define AR_PHY_TX_PWRCTRL9       0xa27C
+#define AR_PHY_TX_PWRCTRL9_RES_DC_REMOVAL  0x80000000
+#define AR_PHY_TX_PWRCTRL9_RES_DC_REMOVAL_S 31
+
+#define AR_PHY_TX_PWRCTRL_OLPC_TEMP_COMP   0x0000FC00
+#define AR_PHY_TX_PWRCTRL_OLPC_TEMP_COMP_S 10
+
+#define AR_PHY_TX_GAIN_TBL1      0xa300
+#define AR_PHY_TX_GAIN                     0x0007F000
+#define AR_PHY_TX_GAIN_S                   12
 
 #define	AR_PHY_RADAR_EXT	0x9940
 #define	AR_PHY_RADAR_EXT_ENA	0x00004000
