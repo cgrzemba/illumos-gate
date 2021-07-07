@@ -11,6 +11,8 @@
 
 /*
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Joyent, Inc.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -27,6 +29,7 @@
 #include <sys/auxv.h>
 #include <sys/old_procfs.h>
 #include <sys/utsname.h>
+#include <sys/secflags.h>
 
 /* prgregset_t is a define on intel */
 #ifdef prgregset_t
@@ -55,4 +58,7 @@ stack_t stack;
 sysset_t sysset;
 timestruc_t ts;
 struct utsname uts;
-prfdinfo_t ptfd;
+prfdinfo_core_t ptfd;
+prsecflags_t psf;
+prlwpname_t psn;
+prupanic_t pru;

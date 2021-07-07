@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2012 Nexenta Systems, Inc.  All rights reserved.
- * Copyright (c) 2015, Joyent, Inc.
+ * Copyright 2017 Joyent, Inc.
  */
 
 /*
@@ -922,7 +922,7 @@ kcf_rnd_chpoll(short events, int anyyet, short *reventsp,
 			*reventsp |= (events & (POLLIN | POLLRDNORM));
 	}
 
-	if (*reventsp == 0 && !anyyet)
+	if ((*reventsp == 0 && !anyyet) || (events & POLLET))
 		*phpp = &rnd_pollhead;
 }
 
@@ -964,7 +964,8 @@ rnd_handler(void *arg)
 		 * cache becomes empty.
 		 */
 		if (taskq_dispatch(system_taskq, rngprov_task,
-		    (void *)(uintptr_t)len, TQ_NOSLEEP | TQ_NOQUEUE) == 0) {
+		    (void *)(uintptr_t)len, TQ_NOSLEEP | TQ_NOQUEUE) ==
+		    TASKQID_INVALID) {
 			rngprov_task_idle = B_TRUE;
 		}
 	}

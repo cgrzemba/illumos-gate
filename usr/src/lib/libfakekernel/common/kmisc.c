@@ -10,7 +10,8 @@
  */
 
 /*
- * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 RackTop Systems.
  */
 
 #include <sys/types.h>
@@ -18,19 +19,23 @@
 #include <sys/thread.h>
 #include <sys/proc.h>
 #include <sys/zone.h>
-
 #include <sys/poll.h>
 
 #include <time.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
+#include <string.h>
 
 #include <fakekernel.h>
 
 pri_t minclsyspri = 60;
+extern zone_t zone0;
 
 /* Some kernel code takes the address of this. */
-proc_t p0;
+proc_t p0 = {
+	.p_zone = &zone0, 0
+};
 
 proc_t *
 _curproc(void)
@@ -55,10 +60,55 @@ ddi_get_pid(void)
 	return ((pid_t)getpid());
 }
 
+/*
+ * Find highest one bit set.
+ *	Returns bit number + 1 of highest bit that is set, otherwise returns 0.
+ */
+int
+highbit64(uint64_t i)
+{
+	int h = 1;
+
+	if (i == 0)
+		return (0);
+	if (i & 0xffffffff00000000ULL) {
+		h += 32; i >>= 32;
+	}
+	if (i & 0xffff0000) {
+		h += 16; i >>= 16;
+	}
+	if (i & 0xff00) {
+		h += 8; i >>= 8;
+	}
+	if (i & 0xf0) {
+		h += 4; i >>= 4;
+	}
+	if (i & 0xc) {
+		h += 2; i >>= 2;
+	}
+	if (i & 0x2) {
+		h += 1;
+	}
+	return (h);
+}
+
 int
 ddi_strtoul(const char *str, char **endp, int base, unsigned long *res)
 {
+	errno = 0;
 	*res = strtoul(str, endp, base);
+	if (*res == 0)
+		return (errno);
+	return (0);
+}
+
+int
+ddi_strtoull(const char *str, char **endp, int base, u_longlong_t *res)
+{
+	errno = 0;
+	*res = strtoull(str, endp, base);
+	if (*res == 0)
+		return (errno);
 	return (0);
 }
 
@@ -67,6 +117,19 @@ delay(clock_t ticks)
 {
 	int msec = ticks;  /* NB: hz==1000 */
 	(void) poll(0, 0, msec);
+}
+
+int
+highbit(ulong_t i)
+{
+	return (fls(i));
+}
+
+/* ARGSUSED */
+int
+issig(int why)
+{
+	return (0);
 }
 
 /*

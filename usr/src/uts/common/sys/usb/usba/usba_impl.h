@@ -23,6 +23,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2014 Garrett D'Amore <garrett@damore.org>
+ * Copyright 2019, Joyent, Inc.
  */
 
 #ifndef	_SYS_USB_USBA_USBA_IMPL_H
@@ -34,6 +35,7 @@
 #include <sys/usb/usba/hubdi.h>
 #include <sys/usb/usba/usba_private.h>
 #include <sys/usb/usba/usba_types.h>
+#include <sys/usb/usba/bos.h>
 #include <sys/taskq.h>
 #include <sys/disp.h>
 
@@ -239,7 +241,6 @@ typedef  struct usba_hubdi {
 /*
  * usba_get_mfg_prod_sn_str:
  *	Return a string containing mfg, product, serial number strings.
- *	Remove duplicates if some strings are the same.
  */
 char	*usba_get_mfg_prod_sn_str(dev_info_t *, char *, int);
 
@@ -302,6 +303,13 @@ void usba_rem_root_hub(dev_info_t *dip);
 void usba_get_dev_string_descrs(dev_info_t *, usba_device_t *);
 
 /*
+ * Retrieve the binary object store for the device.
+ */
+void usba_get_binary_object_store(dev_info_t *, usba_device_t *);
+void usba_add_binary_object_store_props(dev_info_t *, usba_device_t *);
+void usba_free_binary_object_store(usba_device_t *);
+
+/*
  * Check if we are not in interrupt context and have
  * USB_FLAGS_SLEEP flags set.
  */
@@ -319,7 +327,7 @@ void usba_get_dev_string_descrs(dev_info_t *, usba_device_t *);
 #define	DPRINT_MASK_REGISTER		0x00000040
 #define	DPRINT_MASK_DEVDB		0x00000080
 #define	DPRINT_MASK_WHCDI		0x00000100
-#define	DPRINT_MASK_ALL 		0xFFFFFFFF
+#define	DPRINT_MASK_ALL			0xFFFFFFFF
 
 typedef struct usba_log_handle_impl {
 	dev_info_t	*lh_dip;
@@ -437,7 +445,7 @@ typedef struct usb_dev_cap {
 	usb_dev_driver_callback_t	usba_dev_driver_cb;
 } usb_dev_cap_t;
 
-usb_dev_cap_t usb_cap;
+extern usb_dev_cap_t usb_cap;
 _NOTE(SCHEME_PROTECTS_DATA("unique device capture data", usb_cap))
 
 #ifdef __cplusplus

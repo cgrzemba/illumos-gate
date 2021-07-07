@@ -21,8 +21,8 @@
 
 /*
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2014 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2013, Joyent, Inc. All rights reserved.
+ * Copyright 2015 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2014, Tegile Systems Inc. All rights reserved.
  */
 
@@ -61,6 +61,7 @@
 #include <sys/isa_defs.h>
 #include <sys/sunmdi.h>
 #include <sys/mdi_impldefs.h>
+#include <sys/ddi_ufm.h>
 #include <sys/scsi/adapters/mpt_sas/mptsas_hash.h>
 #include <sys/scsi/adapters/mpt_sas/mptsas_ioctl.h>
 #include <sys/scsi/adapters/mpt_sas/mpi/mpi2_tool.h>
@@ -79,15 +80,13 @@ extern "C" {
 
 #define	MPTSAS_INITIAL_SOFT_SPACE	4
 
-#define	MAX_MPI_PORTS		16
-
 /*
  * Note below macro definition and data type definition
  * are used for phy mask handling, it should be changed
  * simultaneously.
  */
-#define	MPTSAS_MAX_PHYS		16
-typedef uint16_t		mptsas_phymask_t;
+#define	MPTSAS_MAX_PHYS		24
+typedef uint32_t		mptsas_phymask_t;
 
 #define	MPTSAS_INVALID_DEVHDL	0xffff
 #define	MPTSAS_SATA_GUID	"sata-guid"
@@ -100,6 +99,7 @@ typedef uint16_t		mptsas_phymask_t;
  */
 #define	MPTSAS_SMP_BUCKET_COUNT		23
 #define	MPTSAS_TARGET_BUCKET_COUNT	97
+#define	MPTSAS_TMP_TARGET_BUCKET_COUNT	13
 
 /*
  * MPT HW defines
@@ -231,9 +231,6 @@ typedef	struct mptsas_target {
 		uint16_t		m_enclosure;
 		uint16_t		m_slot_num;
 		uint32_t		m_tgt_unconfigured;
-		uint8_t			m_led_status;
-		uint8_t			m_scsi_req_desc_type;
-
 } mptsas_target_t;
 
 /*
@@ -248,6 +245,19 @@ typedef struct mptsas_smp {
 	uint16_t		m_pdevhdl;
 	uint32_t		m_pdevinfo;
 } mptsas_smp_t;
+
+/*
+ * This represents a single enclosure. Targets point to an enclosure through
+ * their m_enclosure member.
+ */
+typedef struct mptsas_enclosure {
+	list_node_t	me_link;
+	uint16_t	me_enchdl;
+	uint16_t	me_flags;
+	uint16_t	me_nslots;
+	uint16_t	me_fslot;
+	uint8_t		*me_slotleds;
+} mptsas_enclosure_t;
 
 typedef struct mptsas_cache_frames {
 	ddi_dma_handle_t m_dma_hdl;
@@ -557,6 +567,7 @@ _NOTE(DATA_READABLE_WITHOUT_LOCK(mptsas_topo_change_list_t::flags))
 #define	DEV_INFO_WRONG_DEVICE_TYPE	0x2
 #define	DEV_INFO_PHYS_DISK		0x3
 #define	DEV_INFO_FAIL_ALLOC		0x4
+#define	DEV_INFO_FAIL_GUID		0x5
 
 /*
  * mpt hotplug event defines
@@ -699,6 +710,8 @@ typedef struct mptsas {
 
 	refhash_t	*m_targets;
 	refhash_t	*m_smp_targets;
+	list_t		m_enclosures;
+	refhash_t	*m_tmp_targets;
 
 	m_raidconfig_t	m_raidconfig[MPTSAS_MAX_RAIDCONFIGS];
 	uint8_t		m_num_raid_configs;
@@ -805,6 +818,8 @@ typedef struct mptsas {
 	uint64_t	m_req_frame_dma_addr;
 	caddr_t		m_req_sense;
 	caddr_t		m_extreq_sense;
+	uint_t		m_extreq_sense_refcount;
+	kcondvar_t	m_extreq_sense_refcount_cv;
 	uint64_t	m_req_sense_dma_addr;
 	caddr_t		m_reply_frame;
 	uint64_t	m_reply_frame_dma_addr;
@@ -895,9 +910,13 @@ typedef struct mptsas {
 	int			m_mpxio_enable;
 	uint8_t			m_done_traverse_dev;
 	uint8_t			m_done_traverse_smp;
+	uint8_t			m_done_traverse_enc;
 	int			m_diag_action_in_progress;
 	uint16_t		m_dev_handle;
 	uint16_t		m_smp_devhdl;
+
+	/* DDI UFM Handle */
+	ddi_ufm_handle_t	*m_ufmh;
 
 	/*
 	 * Event recording
@@ -1356,16 +1375,14 @@ int mptsas_get_manufacture_page5(mptsas_t *mpt);
 int mptsas_get_sas_port_page0(mptsas_t *mpt, uint32_t page_address,
     uint64_t *sas_wwn, uint8_t *portwidth);
 int mptsas_get_bios_page3(mptsas_t *mpt,  uint32_t *bios_version);
-int
-mptsas_get_sas_phy_page0(mptsas_t *mpt, uint32_t page_address,
+int mptsas_get_sas_phy_page0(mptsas_t *mpt, uint32_t page_address,
     smhba_info_t *info);
-int
-mptsas_get_sas_phy_page1(mptsas_t *mpt, uint32_t page_address,
+int mptsas_get_sas_phy_page1(mptsas_t *mpt, uint32_t page_address,
     smhba_info_t *info);
-int
-mptsas_get_manufacture_page0(mptsas_t *mpt);
-void
-mptsas_create_phy_stats(mptsas_t *mpt, char *iport, dev_info_t *dip);
+int mptsas_get_manufacture_page0(mptsas_t *mpt);
+int mptsas_get_enclosure_page0(mptsas_t *mpt, uint32_t page_address,
+    mptsas_enclosure_t *mpe);
+void mptsas_create_phy_stats(mptsas_t *mpt, char *iport, dev_info_t *dip);
 void mptsas_destroy_phy_stats(mptsas_t *mpt);
 int mptsas_smhba_phy_init(mptsas_t *mpt);
 /*

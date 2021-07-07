@@ -3,7 +3,7 @@
 .\" The contents of this file are subject to the terms of the Common Development and Distribution License (the "License").  You may not use this file except in compliance with the License. You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE or http://www.opensolaris.org/os/licensing.
 .\"  See the License for the specific language governing permissions and limitations under the License. When distributing Covered Code, include this CDDL HEADER in each file and include the License file at usr/src/OPENSOLARIS.LICENSE.  If applicable, add the following below this CDDL HEADER, with
 .\" the fields enclosed by brackets "[]" replaced with your own identifying information: Portions Copyright [yyyy] [name of copyright owner]
-.TH GETADDRINFO 3SOCKET "May 22, 2014"
+.TH GETADDRINFO 3SOCKET "Feb 25, 2017"
 .SH NAME
 getaddrinfo, getnameinfo, freeaddrinfo, gai_strerror \- translate between node
 name and address
@@ -63,7 +63,11 @@ string. The \fInodename\fR can also be an IPv6 zone-id in the form:
 The address is the literal IPv6 link-local address or host name of the
 destination. The zone-id is the interface ID of the IPv6 link used to send the
 packet. The zone-id can either be a numeric value, indicating a literal zone
-value, or an interface name such as \fBhme0\fR.
+value, or an interface name such as \fBhme0\fR. If the zone-id is an interface
+name, the interface's index will be stored in the \fIsin6_scope_id\fR field of
+the \fBstruct sockaddr_in6\fR. If the interface does not exist, the error
+\fBEAI_NONAME\fR will be returned. If the zone-id is a numeric value, it will
+be placed in \fIsin6_scope_id\fR.
 .sp
 .LP
 A non-null \fIservname\fR string can be either a service name or a decimal port
@@ -158,8 +162,8 @@ called.
 .LP
 If the \fBAI_NUMERICSERV\fR flag is specified, then a non-null servname string
 supplied will be a numeric port string.  Otherwise, an [\fBEAI_NONAME\fR] error
-is returned. This flag prevents any type of name resolution service (for
-example, NIS+) from being invoked.
+is returned. This flag prevents any type of name resolution service
+from being invoked.
 .sp
 .LP
 If the \fBAI_V4MAPPED\fR flag is specified along with an \fBai_family\fR of
@@ -528,7 +532,7 @@ Standard	See \fBstandards\fR(5).
 .SH SEE ALSO
 .LP
 \fBipaddrsel\fR(1M), \fBgethostbyname\fR(3NSL), \fBgetipnodebyname\fR(3SOCKET),
-\fBhtonl\fR(3SOCKET), \fBinet\fR(3SOCKET), \fBsockaddr\fR(3SOCKET),
+\fBhtonl\fR(3C), \fBinet\fR(3SOCKET), \fBsockaddr\fR(3SOCKET),
 \fBnetdb.h\fR(3HEAD), \fBsocket\fR(3SOCKET), \fBhosts\fR(4),
 \fBnsswitch.conf\fR(4), \fBattributes\fR(5), \fBstandards\fR(5), \fBinet6\fR(7P)
 .sp

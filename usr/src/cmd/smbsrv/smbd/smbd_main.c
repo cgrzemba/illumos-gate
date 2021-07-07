@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #include <sys/types.h>
@@ -402,6 +402,7 @@ smbd_daemonize_fini(int fd, int exit_status)
 	(void) priv_addset(pset, PRIV_NET_MAC_AWARE);
 	(void) priv_addset(pset, PRIV_NET_PRIVADDR);
 	(void) priv_addset(pset, PRIV_PROC_AUDIT);
+	(void) priv_addset(pset, PRIV_SYS_CONFIG);
 	(void) priv_addset(pset, PRIV_SYS_DEVICES);
 	(void) priv_addset(pset, PRIV_SYS_SMB);
 	(void) priv_addset(pset, PRIV_SYS_MOUNT);
@@ -433,6 +434,7 @@ smbd_service_init(void)
 		{ SMB_SYSTEM32,	0755 },
 		{ SMB_VSS,	0755 },
 		{ SMB_PIPE_DIR,	0755 },
+		{ "/var/smb/lipc", 0755 },
 	};
 	int	rc, i;
 
@@ -457,6 +459,12 @@ smbd_service_init(void)
 		}
 	}
 
+	/*
+	 * This environment variable tells mech_krb5 to give us
+	 * MS-compatible behavior.
+	 */
+	(void) putenv("MS_INTEROP=1");
+
 	if ((rc = smb_ccache_init(SMB_VARRUN_DIR, SMB_CCACHE_FILE)) != 0) {
 		if (rc == -1)
 			smbd_report("mkdir %s: %s", SMB_VARRUN_DIR,
@@ -465,6 +473,11 @@ smbd_service_init(void)
 			smbd_report("unable to set KRB5CCNAME");
 		return (-1);
 	}
+
+#ifndef	FKSMBD
+	/* Upgrade SMF settings, if necessary. */
+	smb_config_upgrade();
+#endif
 
 	smb_codepage_init();
 
@@ -500,6 +513,11 @@ smbd_service_init(void)
 
 	if (smbd_pipesvc_start() != 0) {
 		smbd_report("pipesvc initialization failed");
+		return (-1);
+	}
+
+	if (smbd_authsvc_start() != 0) {
+		smbd_report("authsvc initialization failed");
 		return (-1);
 	}
 
@@ -555,9 +573,11 @@ smbd_service_fini(void)
 	smb_lgrp_stop();
 	smbd_pipesvc_stop();
 	smbd_door_stop();
+	smbd_authsvc_stop();
 	smbd_spool_stop();
 	smbd_kernel_unbind();
 	smbd_share_stop();
+	smb_shr_unload();
 	smb_shr_stop();
 	dyndns_stop();
 	smbd_nicmon_stop();
@@ -612,7 +632,9 @@ smbd_refresh_handler()
 	/* This reloads the in-kernel config. */
 	(void) smbd_kernel_bind();
 
-	smbd_load_shares();
+	/* On refresh load share properties only, not the shares themselves */
+	smb_shr_load_execinfo();
+
 	smbd_load_printers();
 	smbd_spool_start();
 }
@@ -671,7 +693,7 @@ static int
 smbd_already_running(void)
 {
 	door_info_t	info;
-	char 		*door_name;
+	char		*door_name;
 	int		door;
 
 	door_name = getenv("SMBD_DOOR_NAME");
@@ -708,6 +730,7 @@ smbd_kernel_bind(void)
 
 	if (smbd.s_kbound) {
 		smb_load_kconfig(&cfg);
+		smbd_get_authconf(&cfg);
 		rc = smb_kmod_setcfg(&cfg);
 		if (rc < 0)
 			smbd_report("kernel configuration update failed: %s",
@@ -738,6 +761,7 @@ smbd_kernel_start(void)
 	int		rc;
 
 	smb_load_kconfig(&cfg);
+	smbd_get_authconf(&cfg);
 	rc = smb_kmod_setcfg(&cfg);
 	if (rc != 0) {
 		smbd_report("kernel config ioctl error: %s", strerror(rc));
@@ -813,6 +837,10 @@ smbd_load_shares(void)
 		smbd_report("unable to load disk shares: %s", strerror(errno));
 }
 
+/*
+ * This wrapper function is used to avoid casting smb_shr_load() in
+ * pthread_create() above. It is called very infrequently.
+ */
 static void *
 smbd_share_loader(void *args)
 {

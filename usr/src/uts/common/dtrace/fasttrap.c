@@ -121,7 +121,7 @@
  * creation lock.
  *
  * Briefly:
- * 	bucket lock before provider lock
+ *	bucket lock before provider lock
  *	DTrace before provider lock
  *	creation lock before DTrace
  *	never hold the provider lock and creation lock simultaneously
@@ -1784,6 +1784,18 @@ fasttrap_meta_provide(void *arg, dtrace_helper_provdesc_t *dhpv, pid_t pid)
 	return (provider);
 }
 
+/*
+ * We know a few things about our context here:  we know that the probe being
+ * created doesn't already exist (DTrace won't load DOF at the same address
+ * twice, even if explicitly told to do so) and we know that we are
+ * single-threaded with respect to the meta provider machinery. Knowing that
+ * this is a new probe and that there is no way for us to race with another
+ * operation on this provider allows us an important optimization: we need not
+ * lookup a probe before adding it.  Saving this lookup is important because
+ * this code is in the fork path for processes with USDT probes, and lookups
+ * here are potentially very expensive because of long hash conflicts on
+ * module, function and name (DTrace doesn't hash on provider name).
+ */
 /*ARGSUSED*/
 static void
 fasttrap_meta_create_probe(void *arg, void *parg,
@@ -1820,19 +1832,6 @@ fasttrap_meta_create_probe(void *arg, void *parg,
 			return;
 	}
 
-	/*
-	 * Grab the creation lock to ensure consistency between calls to
-	 * dtrace_probe_lookup() and dtrace_probe_create() in the face of
-	 * other threads creating probes.
-	 */
-	mutex_enter(&provider->ftp_cmtx);
-
-	if (dtrace_probe_lookup(provider->ftp_provid, dhpb->dthpb_mod,
-	    dhpb->dthpb_func, dhpb->dthpb_name) != 0) {
-		mutex_exit(&provider->ftp_cmtx);
-		return;
-	}
-
 	ntps = dhpb->dthpb_noffs + dhpb->dthpb_nenoffs;
 	ASSERT(ntps > 0);
 
@@ -1840,7 +1839,6 @@ fasttrap_meta_create_probe(void *arg, void *parg,
 
 	if (fasttrap_total > fasttrap_max) {
 		atomic_add_32(&fasttrap_total, -ntps);
-		mutex_exit(&provider->ftp_cmtx);
 		return;
 	}
 
@@ -1904,8 +1902,6 @@ fasttrap_meta_create_probe(void *arg, void *parg,
 	 */
 	pp->ftp_id = dtrace_probe_create(provider->ftp_provid, dhpb->dthpb_mod,
 	    dhpb->dthpb_func, dhpb->dthpb_name, FASTTRAP_OFFSET_AFRAMES, pp);
-
-	mutex_exit(&provider->ftp_cmtx);
 }
 
 /*ARGSUSED*/
@@ -2138,7 +2134,7 @@ fasttrap_attach(dev_info_t *devi, ddi_attach_cmd_t cmd)
 	}
 
 	if (ddi_create_minor_node(devi, "fasttrap", S_IFCHR, 0,
-	    DDI_PSEUDO, NULL) == DDI_FAILURE) {
+	    DDI_PSEUDO, 0) == DDI_FAILURE) {
 		ddi_remove_minor_node(devi, NULL);
 		return (DDI_FAILURE);
 	}

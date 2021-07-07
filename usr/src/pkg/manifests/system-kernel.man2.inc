@@ -13,6 +13,9 @@
 # Copyright 2011, Richard Lowe
 # Copyright 2012 Nexenta Systems, Inc. All rights reserved.
 # Copyright 2013, OmniTI Computer Consulting, Inc.
+# Copyright 2017 Peter Tribble
+# Copyright 2018, Joyent, Inc.
+# Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
 #
 
 file path=usr/share/man/man2/Intro.2
@@ -53,11 +56,11 @@ file path=usr/share/man/man2/getdents.2
 file path=usr/share/man/man2/getgroups.2
 file path=usr/share/man/man2/getisax.2
 file path=usr/share/man/man2/getitimer.2
-file path=usr/share/man/man2/getlabel.2
 file path=usr/share/man/man2/getmsg.2
 file path=usr/share/man/man2/getpflags.2
 file path=usr/share/man/man2/getpid.2
 file path=usr/share/man/man2/getppriv.2
+file path=usr/share/man/man2/getrandom.2
 file path=usr/share/man/man2/getrlimit.2
 file path=usr/share/man/man2/getsid.2
 file path=usr/share/man/man2/getuid.2
@@ -148,6 +151,7 @@ file path=usr/share/man/man2/umask.2
 file path=usr/share/man/man2/umount.2
 file path=usr/share/man/man2/uname.2
 file path=usr/share/man/man2/unlink.2
+file path=usr/share/man/man2/upanic.2
 file path=usr/share/man/man2/ustat.2
 file path=usr/share/man/man2/utime.2
 file path=usr/share/man/man2/utimes.2
@@ -182,7 +186,6 @@ link path=usr/share/man/man2/fchmodat.2 target=chmod.2
 link path=usr/share/man/man2/fchown.2 target=chown.2
 link path=usr/share/man/man2/fchownat.2 target=chown.2
 link path=usr/share/man/man2/fchroot.2 target=chroot.2
-link path=usr/share/man/man2/fgetlabel.2 target=getlabel.2
 link path=usr/share/man/man2/fork1.2 target=fork.2
 link path=usr/share/man/man2/forkall.2 target=fork.2
 link path=usr/share/man/man2/forkallx.2 target=fork.2
@@ -191,6 +194,7 @@ link path=usr/share/man/man2/fstat.2 target=stat.2
 link path=usr/share/man/man2/fstatat.2 target=stat.2
 link path=usr/share/man/man2/fstatvfs.2 target=statvfs.2
 link path=usr/share/man/man2/futimens.2 target=utimes.2
+link path=usr/share/man/man2/futimes.2 target=utimes.2
 link path=usr/share/man/man2/futimesat.2 target=utimes.2
 link path=usr/share/man/man2/getaudit_addr.2 target=getaudit.2
 link path=usr/share/man/man2/getegid.2 target=getuid.2
@@ -204,9 +208,10 @@ link path=usr/share/man/man2/getprojid.2 target=settaskid.2
 link path=usr/share/man/man2/getrctl.2 target=setrctl.2
 link path=usr/share/man/man2/gettaskid.2 target=settaskid.2
 link path=usr/share/man/man2/intro.2 target=Intro.2
-link path=usr/share/man/man2/linkat.2 target=link.2
 link path=usr/share/man/man2/lchown.2 target=chown.2
+link path=usr/share/man/man2/linkat.2 target=link.2
 link path=usr/share/man/man2/lstat.2 target=stat.2
+link path=usr/share/man/man2/lutimes.2 target=utimes.2
 link path=usr/share/man/man2/mkdirat.2 target=mkdir.2
 link path=usr/share/man/man2/mknodat.2 target=mknod.2
 link path=usr/share/man/man2/openat.2 target=open.2

@@ -41,21 +41,14 @@ include	$(SRC)/cmd/picl/plugins/Makefile.com
 CPPFLAGS +=	-D_REENTRANT -I$(SRC)/uts/sun4u/serengeti
 CPPFLAGS +=	-I$(SRC)/uts/sun4u/serengeti
 CPPFLAGS +=	-I$(SRC)/uts/sun4u/lw8
-CPPFLAGS +=	-I$(SRC)/uts/sun4u -I$(CLOSED)/uts/sun4u
-CPPFLAGS +=	-I$(SRC)/uts/common -I$(CLOSED)/uts/common
+CPPFLAGS +=	-I$(SRC)/uts/sun4u
+CPPFLAGS +=	-I$(SRC)/uts/common
 
 SRCS =		$(OBJECTS:%.o=%.c)
 
 LIBS =		$(DYNLIB)
 
 ROOTLIBDIR	= $(ROOT_PLAT_PLUGINDIR)
-
-LINTSRC =	$(LINTLIB:%.ln=%)
-ROOTLINTDIR =	$(ROOTLIBDIR)
-ROOTLINT =	$(LINTSRC:%=$(ROOTLINTDIR)/%)
-
-CLEANFILES =	$(LINTOUT) $(LINTLIB)
-
 
 CPPFLAGS +=	-D_SGFRU
 CFLAGS +=	$(CCVERBOSE)
@@ -77,7 +70,6 @@ all :=		TARGET= all
 install :=	TARGET= install
 clean :=	TARGET= clean
 clobber :=	TARGET= clobber
-lint :=		TARGET= lint
 _msg :=		TARGET= _msg
 
 all: $(LIBS) $(LIBLINKS)
@@ -97,12 +89,6 @@ $(LIBLINKS):	FRC
 # include library targets
 include $(SRC)/lib/Makefile.targ
 include	$(SRC)/cmd/picl/plugins/Makefile.targ
-
-$(ROOTLINTDIR)/%: ../%
-	$(INS.file)
-
-lint:
-	$(LINT.c) $(SRCS)
 
 $(SUBDIRS): FRC
 	@cd $@; pwd; $(MAKE) $(TARGET)

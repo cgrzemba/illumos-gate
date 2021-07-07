@@ -20,11 +20,12 @@
  */
 
 /*
- * Copyright 2014 Joyent, Inc.
+ * Copyright 2018 Joyent, Inc.
  */
 
 /*
  * Copyright (c) 1985, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016 by Delphix. All rights reserved.
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T */
@@ -64,7 +65,7 @@ extern "C" {
 #include <stdlib.h>
 #include <ulimit.h>
 #include <wait.h>
-#include <libcmdutils.h>
+#include <libcustr.h>
 #endif
 #ifdef VMUNIX
 #include <sys/wait.h>
@@ -211,7 +212,7 @@ struct cmd {
 
 typedef struct headline {
 	custr_t	*hl_from;	/* The name of the sender */
-	custr_t	*hl_tty;	/* His tty string (if any) */
+	custr_t	*hl_tty;	/* Its tty string (if any) */
 	custr_t	*hl_date;	/* The entire date string */
 } headline_t;
 

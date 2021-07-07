@@ -20,7 +20,9 @@
  */
 /*
  * Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Joyent, Inc.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #include <sys/types.h>
@@ -42,7 +44,6 @@
 #include <smbsrv/libsmb.h>
 
 #define	SMBDRV_DEVICE_PATH		"/dev/smbsrv"
-#define	SMB_IOC_DATA_SIZE		(256 * 1024)
 
 int smb_kmod_ioctl(int, smb_ioc_header_t *, uint32_t);
 
@@ -69,6 +70,7 @@ smb_kmod_isbound(void)
 	return ((smbdrv_fd == -1) ? B_FALSE : B_TRUE);
 }
 
+/* See also: smbsrv smb_server_store_cfg */
 int
 smb_kmod_setcfg(smb_kmod_cfg_t *cfg)
 {
@@ -83,12 +85,26 @@ smb_kmod_setcfg(smb_kmod_cfg_t *cfg)
 	ioc.oplock_enable = cfg->skc_oplock_enable;
 	ioc.sync_enable = cfg->skc_sync_enable;
 	ioc.secmode = cfg->skc_secmode;
-	ioc.ipv6_enable = cfg->skc_ipv6_enable;
 	ioc.netbios_enable = cfg->skc_netbios_enable;
+	ioc.ipv6_enable = cfg->skc_ipv6_enable;
 	ioc.print_enable = cfg->skc_print_enable;
 	ioc.traverse_mounts = cfg->skc_traverse_mounts;
+	ioc.max_protocol = cfg->skc_max_protocol;
+	ioc.min_protocol = cfg->skc_min_protocol;
 	ioc.exec_flags = cfg->skc_execflags;
+	ioc.negtok_len = cfg->skc_negtok_len;
 	ioc.version = cfg->skc_version;
+	ioc.initial_credits = cfg->skc_initial_credits;
+	ioc.maximum_credits = cfg->skc_maximum_credits;
+	ioc.encrypt = cfg->skc_encrypt;
+	ioc.encrypt_cipher = cfg->skc_encrypt_cipher;
+
+	(void) memcpy(ioc.machine_uuid, cfg->skc_machine_uuid, sizeof (uuid_t));
+	(void) memcpy(ioc.negtok, cfg->skc_negtok, sizeof (ioc.negtok));
+	(void) memcpy(ioc.native_os, cfg->skc_native_os,
+	    sizeof (ioc.native_os));
+	(void) memcpy(ioc.native_lm, cfg->skc_native_lm,
+	    sizeof (ioc.native_lm));
 
 	(void) strlcpy(ioc.nbdomain, cfg->skc_nbdomain, sizeof (ioc.nbdomain));
 	(void) strlcpy(ioc.fqdn, cfg->skc_fqdn, sizeof (ioc.fqdn));

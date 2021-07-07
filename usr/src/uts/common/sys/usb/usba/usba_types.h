@@ -22,6 +22,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2014 Garrett D'Amore <garrett@damore.org>
+ * Copyright 2019, Joyent, Inc.
  */
 
 #ifndef	_SYS_USB_USBA_USBA_TYPES_H
@@ -31,6 +32,7 @@
 #include <sys/taskq.h>
 #include <sys/usb/usba/usba_private.h>
 #include <sys/usb/usba/usbai_private.h>
+#include <sys/usb/usba/bos.h>
 
 #ifdef	__cplusplus
 extern "C" {
@@ -86,9 +88,16 @@ typedef struct	usba_pipe_handle_data {
 	/* shared usba_device structure */
 	struct usba_device	*p_usba_device;	/* set on pipe open */
 
-	/* pipe policy and endpoint descriptor for this pipe */
+	/*
+	 * Pipe policy and endpoint descriptor for this pipe
+	 *
+	 * Both the basic and extended endpoints are kept around even though
+	 * we're duplicating data as most of the HCI drivers are relying on the
+	 * presence of p_ep.
+	 */
 	usb_pipe_policy_t	p_policy;	/* maintained by USBA */
 	usb_ep_descr_t		p_ep;
+	usb_ep_xdescr_t		p_xep;
 
 	/* passed during open. needed for reset etc. */
 	dev_info_t		*p_dip;
@@ -195,9 +204,15 @@ typedef uint8_t usb_port_status_t;
 typedef uint16_t usb_port_t;
 typedef uint32_t usb_port_mask_t;
 
+/*
+ * Note, faster speeds should always be in increasing values. Various parts of
+ * the stack use >= comparisons for things which are true for say anything equal
+ * to or greater than USB 2.0.
+ */
 #define	USBA_LOW_SPEED_DEV	0x1
 #define	USBA_FULL_SPEED_DEV	0x2
 #define	USBA_HIGH_SPEED_DEV	0x3
+#define	USBA_SUPER_SPEED_DEV	0x4
 
 /*
  * NDI event is registered on a per-dip basis. usba_device can be
@@ -228,7 +243,7 @@ typedef struct usb_client_dev_data_list {
 } usb_client_dev_data_list_t;
 
 /*
- * This	structure uniquely identifies a USB device
+ * This structure uniquely identifies a USB device
  * with all interfaces,	or just one interface of a USB device.
  * usba_device is associated with a devinfo node
  *
@@ -334,6 +349,30 @@ typedef struct usba_device {
 	taskq_t			*usb_shared_taskq[USBA_N_ENDPOINTS];
 	uchar_t			usb_shared_taskq_ref_count
 						[USBA_N_ENDPOINTS];
+
+	/*
+	 * Pointer to hub this is under. This is required for some HCDs to
+	 * accurately set up the device. Note that some usba_device_t's are
+	 * shared by multiple entries, so this is not strictly the parent
+	 * device. This would come up if the usb_mid driver was on the scene.
+	 * Importantly, this field is always read-only. While this is similar to
+	 * the usb_hs_hub_usba_dev, it's always set, regardless if it's a high
+	 * speed device or not.
+	 */
+	struct usba_device	*usb_parent_hub;
+
+	/*
+	 * Private data for HCD drivers
+	 */
+	void			*usb_hcd_private;
+
+	/*
+	 * Binary Object Store data
+	 */
+	mblk_t			*usb_bos_mp;
+	uint_t			usb_bos_nalloc;
+	uint_t			usb_bos_nents;
+	usb_bos_t		*usb_bos;
 } usba_device_t;
 
 #define	USBA_CLIENT_FLAG_SIZE		1

@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #include <sys/types.h>
@@ -781,9 +781,9 @@ acevals_init(acevals_t *vals, uid_t key)
 static void
 ace_list_init(ace_list_t *al, int dfacl_flag)
 {
-	acevals_init(&al->user_obj, NULL);
-	acevals_init(&al->group_obj, NULL);
-	acevals_init(&al->other_obj, NULL);
+	acevals_init(&al->user_obj, 0);
+	acevals_init(&al->group_obj, 0);
+	acevals_init(&al->other_obj, 0);
 	al->numusers = 0;
 	al->numgroups = 0;
 	al->acl_mask = 0;
@@ -875,8 +875,8 @@ access_mask_check(ace_t *acep, int mask_bit, int isowner)
 			set_allow = ACL_WRITE_ATTRS_WRITER_SET_ALLOW;
 			err_allow = ACL_WRITE_ATTRS_WRITER_ERR_ALLOW;
 		} else {
-			if ((acep->a_access_mask & mask_bit) &&
-			    (acep->a_type & ACE_ACCESS_ALLOWED_ACE_TYPE)) {
+			if (((acep->a_access_mask & mask_bit) != 0) &&
+			    (acep->a_type == ACE_ACCESS_ALLOWED_ACE_TYPE)) {
 				return (ENOTSUP);
 			}
 			return (0);
@@ -1093,12 +1093,11 @@ ace_list_to_aent(ace_list_t *list, aclent_t **aclentp, int *aclcnt,
 
 	if ((list->seen & (USER_OBJ | GROUP_OBJ | OTHER_OBJ)) !=
 	    (USER_OBJ | GROUP_OBJ | OTHER_OBJ)) {
-		error = ENOTSUP;
-		goto out;
+		return (ENOTSUP);
 	}
+
 	if ((! list->hasmask) && (list->numusers + list->numgroups > 0)) {
-		error = ENOTSUP;
-		goto out;
+		return (ENOTSUP);
 	}
 
 	resultcount = 3 + list->numusers + list->numgroups;
@@ -1578,7 +1577,8 @@ acl_trivial_access_masks(mode_t mode, boolean_t isdir, trivial_acl_t *masks)
 	uint32_t write_mask = ACE_WRITE_DATA|ACE_APPEND_DATA;
 	uint32_t execute_mask = ACE_EXECUTE;
 
-	(void) isdir;	/* will need this later */
+	if (isdir)
+		write_mask |= ACE_DELETE_CHILD;
 
 	masks->deny1 = 0;
 	if (!(mode & S_IRUSR) && (mode & (S_IRGRP|S_IROTH)))
@@ -1636,7 +1636,7 @@ acl_trivial_access_masks(mode_t mode, boolean_t isdir, trivial_acl_t *masks)
 int
 acl_trivial_create(mode_t mode, boolean_t isdir, ace_t **acl, int *count)
 {
-	int 		index = 0;
+	int		index = 0;
 	int		error;
 	trivial_acl_t	masks;
 
@@ -1695,7 +1695,8 @@ ace_trivial_common(void *acep, int aclcnt,
 	uint16_t type;
 	uint64_t cookie = 0;
 
-	while (cookie = walk(acep, cookie, aclcnt, &flags, &type, &mask)) {
+	while ((cookie = walk(acep, cookie, aclcnt, &flags, &type, &mask))
+	    != 0) {
 		switch (flags & ACE_TYPE_FLAGS) {
 		case ACE_OWNER:
 		case ACE_GROUP|ACE_IDENTIFIER_GROUP:
@@ -1722,10 +1723,17 @@ ace_trivial_common(void *acep, int aclcnt,
 			return (1);
 
 		/*
-		 * Delete permissions are never set by default
+		 * Delete permission is never set by default
 		 */
-		if (mask & (ACE_DELETE|ACE_DELETE_CHILD))
+		if (mask & ACE_DELETE)
 			return (1);
+
+		/*
+		 * Child delete permission should be accompanied by write
+		 */
+		if ((mask & ACE_DELETE_CHILD) && !(mask & ACE_WRITE_DATA))
+			return (1);
+
 		/*
 		 * only allow owner@ to have
 		 * write_acl/write_owner/write_attributes/write_xattr/

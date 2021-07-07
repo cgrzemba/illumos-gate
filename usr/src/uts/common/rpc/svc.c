@@ -20,7 +20,9 @@
  */
 
 /*
+ * Copyright 2012 Marcel Telka <marcel@telka.sk>
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  */
 
 /*
@@ -33,7 +35,7 @@
  */
 
 /*	Copyright (c) 1983, 1984, 1985,  1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	All Rights Reserved	*/
 
 /*
  * Portions of this source code were derived from Berkeley 4.3 BSD
@@ -207,8 +209,6 @@
 #include <nfs/nfs.h>
 #include <sys/tsol/label_macro.h>
 
-#define	RQCRED_SIZE	400	/* this size is excessive */
-
 /*
  * Defines for svc_poll()
  */
@@ -296,27 +296,6 @@ volatile int svc_flowcontrol_disable = 0;
  */
 static caddr_t rqcred_head;
 static kmutex_t rqcred_lock;
-
-/*
- * Pointers to transport specific `rele' routines in rpcmod (set from rpcmod).
- */
-void	(*rpc_rele)(queue_t *, mblk_t *, bool_t) = NULL;
-void	(*mir_rele)(queue_t *, mblk_t *, bool_t) = NULL;
-
-/* ARGSUSED */
-void
-rpc_rdma_rele(queue_t *q, mblk_t *mp, bool_t enable)
-{
-}
-void    (*rdma_rele)(queue_t *, mblk_t *, bool_t) = rpc_rdma_rele;
-
-
-/*
- * This macro picks which `rele' routine to use, based on the transport type.
- */
-#define	RELE_PROC(xprt) \
-	((xprt)->xp_type == T_RDMA ? rdma_rele : \
-	(((xprt)->xp_type == T_CLTS) ? rpc_rele : mir_rele))
 
 /*
  * If true, then keep quiet about version mismatch.
@@ -597,7 +576,7 @@ svc_pool_register(struct svc_globals *svc, SVCPOOL *pool, int id)
  */
 static int
 svc_pool_init(SVCPOOL *pool, uint_t maxthreads, uint_t redline,
-	uint_t qsize, uint_t timeout, uint_t stksize, uint_t max_same_xprt)
+    uint_t qsize, uint_t timeout, uint_t stksize, uint_t max_same_xprt)
 {
 	klwp_t *lwp = ttolwp(curthread);
 
@@ -1047,8 +1026,8 @@ svc_xprt_cleanup(SVCMASTERXPRT *xprt, bool_t detached)
  * table for an entry with a matching RPC program number `prog'
  * and a version range that covers `vers'.
  * - if it finds a matching entry it returns pointer to the dispatch routine
- * - otherwise it returns NULL and, if `minp' or `maxp' are not NULL,
- *   fills them with, respectively, lowest version and highest version
+ * - otherwise it returns NULL and fills both vers_min and vers_max
+ *   with, respectively, lowest version and highest version
  *   supported for the program `prog'
  */
 static SVC_DISPATCH *
@@ -2389,7 +2368,7 @@ svc_run(SVCPOOL *pool)
 		if (enable)
 			xprt->xp_enable = FALSE;
 		mutex_exit(&xprt->xp_req_lock);
-		(*RELE_PROC(xprt)) (clone_xprt->xp_wq, NULL, enable);
+		SVC_RELE(clone_xprt, NULL, enable);
 	}
 	/* NOTREACHED */
 }
@@ -2414,7 +2393,7 @@ svc_queueclean(queue_t *q)
 		/* remove the request from the list */
 		xprt->xp_req_head = mp->b_next;
 		mp->b_next = (mblk_t *)0;
-		(*RELE_PROC(xprt)) (xprt->xp_wq, mp, FALSE);
+		SVC_RELE(xprt, mp, FALSE);
 	}
 
 	mutex_enter(&pool->p_req_lock);
@@ -2731,7 +2710,7 @@ svc_detach_thread(SVCXPRT *clone_xprt)
 	if (enable)
 		xprt->xp_enable = FALSE;
 	mutex_exit(&xprt->xp_req_lock);
-	(*RELE_PROC(xprt)) (clone_xprt->xp_wq, NULL, enable);
+	SVC_RELE(clone_xprt, NULL, enable);
 
 	/* Mark the clone (thread) as detached */
 	clone_xprt->xp_reserved = FALSE;

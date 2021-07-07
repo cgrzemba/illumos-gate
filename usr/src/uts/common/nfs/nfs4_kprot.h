@@ -269,7 +269,7 @@ typedef uint32_t aceflag4;
 #define	ACE4_FAILED_ACCESS_ACE_FLAG 0x00000020
 #define	ACE4_IDENTIFIER_GROUP 0x00000040
 /*
- * This defines all valid flag bits, as defined by RFC 3530.  If
+ * This defines all valid flag bits, as defined by RFC 7530.  If
  * any additional flag bits are deemed part of the NFSv4 spec,
  * you must also add them to the definition below.
  */
@@ -304,7 +304,7 @@ typedef uint32_t acemask4;
 #define	ACE4_GENERIC_WRITE 0x00160106
 #define	ACE4_GENERIC_EXECUTE 0x001200A0
 /*
- * This defines all valid access mask bits, as defined by RFC 3530.  If
+ * This defines all valid access mask bits, as defined by RFC 7530.  If
  * any additional access mask bits are deemed part of the NFSv4 spec,
  * you must also add them to the definition below.
  */
@@ -1462,9 +1462,6 @@ struct nfs_argop4 {
 		WRITE4args opwrite;
 		RELEASE_LOCKOWNER4args oprelease_lockowner;
 	} nfs_argop4_u;
-	size_t opsize;		/* the number of bytes occupied by the */
-				/* particular operation in the XDR stream */
-				/* (set during the decode only) */
 };
 typedef struct nfs_argop4 nfs_argop4;
 
@@ -1511,12 +1508,6 @@ struct nfs_resop4 {
 		RELEASE_LOCKOWNER4res oprelease_lockowner;
 		ILLEGAL4res opillegal;
 	} nfs_resop4_u;
-	size_t opsize;		/* the number of bytes occupied by the */
-				/* particular operation in the XDR stream */
-				/* (set during the encode only) */
-	struct exportinfo *exi;	/* the exportinfo where the operation should */
-				/* be counted in (support for per-exportinfo */
-				/* kstats) */
 };
 typedef struct nfs_resop4 nfs_resop4;
 

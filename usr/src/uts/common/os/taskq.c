@@ -25,6 +25,8 @@
 
 /*
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright (c) 2017 by Delphix. All rights reserved.
+ * Copyright 2018, Joyent, Inc.
  */
 
 /*
@@ -158,7 +160,7 @@
  *	the caller is willing to block for memory.  The function returns an
  *	opaque value which is zero iff dispatch fails.  If flags is TQ_NOSLEEP
  *	or TQ_NOALLOC and the task can't be dispatched, taskq_dispatch() fails
- *	and returns (taskqid_t)0.
+ *	and returns TASKQID_INVALID.
  *
  *	ASSUMES: func != NULL.
  *
@@ -198,6 +200,10 @@
  *	until the function (func) is called.  (However, func itself
  *	may safely modify or free this memory, once it is called.)
  *	Note that the taskq framework will NOT free this memory.
+ *
+ * boolean_t taskq_empty(tq)
+ *
+ *	Queries if there are tasks pending on the queue.
  *
  * void taskq_wait(tq):
  *
@@ -596,16 +602,18 @@ struct taskq_kstat {
 	kstat_named_t	tq_nactive;
 	kstat_named_t	tq_pri;
 	kstat_named_t	tq_nthreads;
+	kstat_named_t	tq_nomem;
 } taskq_kstat = {
 	{ "pid",		KSTAT_DATA_UINT64 },
 	{ "tasks",		KSTAT_DATA_UINT64 },
 	{ "executed",		KSTAT_DATA_UINT64 },
 	{ "maxtasks",		KSTAT_DATA_UINT64 },
 	{ "totaltime",		KSTAT_DATA_UINT64 },
-	{ "nactive",		KSTAT_DATA_UINT64 },
 	{ "nalloc",		KSTAT_DATA_UINT64 },
+	{ "nactive",		KSTAT_DATA_UINT64 },
 	{ "priority",		KSTAT_DATA_UINT64 },
 	{ "threads",		KSTAT_DATA_UINT64 },
+	{ "nomem",		KSTAT_DATA_UINT64 },
 };
 
 struct taskq_d_kstat {
@@ -692,7 +700,7 @@ uint_t taskq_smtbf = UINT_MAX;    /* mean time between injected failures */
 	taskq_random = (taskq_random * 2416 + 374441) % 1771875;\
 	if ((flag & TQ_NOSLEEP) &&				\
 	    taskq_random < 1771875 / taskq_dmtbf) {		\
-		return (NULL);					\
+		return (TASKQID_INVALID);			\
 	}
 
 #define	TASKQ_S_RANDOM_DISPATCH_FAILURE(tq, flag)		\
@@ -702,7 +710,7 @@ uint_t taskq_smtbf = UINT_MAX;    /* mean time between injected failures */
 	    (tq->tq_nalloc > tq->tq_minalloc)) &&		\
 	    (taskq_random < (1771875 / taskq_smtbf))) {		\
 		mutex_exit(&tq->tq_lock);			\
-		return (NULL);					\
+		return (TASKQID_INVALID);			\
 	}
 #else
 #define	TASKQ_S_RANDOM_DISPATCH_FAILURE(tq, flag)
@@ -1157,8 +1165,9 @@ taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t flags)
 		TASKQ_S_RANDOM_DISPATCH_FAILURE(tq, flags);
 
 		if ((tqe = taskq_ent_alloc(tq, flags)) == NULL) {
+			tq->tq_nomem++;
 			mutex_exit(&tq->tq_lock);
-			return (NULL);
+			return ((taskqid_t)tqe);
 		}
 		/* Make sure we start without any flags */
 		tqe->tqent_un.tqent_flags = 0;
@@ -1270,7 +1279,7 @@ taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t flags)
 		if ((tqe1 = taskq_ent_alloc(tq, TQ_NOSLEEP)) != NULL) {
 			TQ_ENQUEUE_FRONT(tq, tqe1, taskq_bucket_extend, bucket);
 		} else {
-			TQ_STAT(bucket, tqs_nomem);
+			tq->tq_nomem++;
 		}
 	}
 
@@ -1282,7 +1291,7 @@ taskq_dispatch(taskq_t *tq, task_func_t func, void *arg, uint_t flags)
 		if ((tqe = taskq_ent_alloc(tq, flags)) != NULL) {
 			TQ_ENQUEUE(tq, tqe, func, arg);
 		} else {
-			TQ_STAT(bucket, tqs_nomem);
+			tq->tq_nomem++;
 		}
 	}
 	mutex_exit(&tq->tq_lock);
@@ -1316,6 +1325,22 @@ taskq_dispatch_ent(taskq_t *tq, task_func_t func, void *arg, uint_t flags,
 }
 
 /*
+ * Allow our caller to ask if there are tasks pending on the queue.
+ */
+boolean_t
+taskq_empty(taskq_t *tq)
+{
+	boolean_t rv;
+
+	ASSERT3P(tq, !=, curthread->t_taskq);
+	mutex_enter(&tq->tq_lock);
+	rv = (tq->tq_task.tqent_next == &tq->tq_task) && (tq->tq_active == 0);
+	mutex_exit(&tq->tq_lock);
+
+	return (rv);
+}
+
+/*
  * Wait for all pending tasks to complete.
  * Calling taskq_wait from a task will cause deadlock.
  */
@@ -1339,6 +1364,12 @@ taskq_wait(taskq_t *tq)
 			mutex_exit(&b->tqbucket_lock);
 		}
 	}
+}
+
+void
+taskq_wait_id(taskq_t *tq, taskqid_t id __unused)
+{
+	taskq_wait(tq);
 }
 
 /*
@@ -1673,7 +1704,7 @@ taskq_d_thread(taskq_ent_t *tqe)
 	kmutex_t	*lock = &bucket->tqbucket_lock;
 	kcondvar_t	*cv = &tqe->tqent_cv;
 	callb_cpr_t	cprinfo;
-	clock_t		w;
+	clock_t		w = 0;
 
 	CALLB_CPR_INIT(&cprinfo, lock, callb_generic_cpr, tq->tq_name);
 
@@ -2171,12 +2202,13 @@ taskq_bucket_extend(void *arg)
 	taskq_t *tq = b->tqbucket_taskq;
 	int nthreads;
 
+	mutex_enter(&tq->tq_lock);
+
 	if (! ENOUGH_MEMORY()) {
-		TQ_STAT(b, tqs_nomem);
+		tq->tq_nomem++;
+		mutex_exit(&tq->tq_lock);
 		return;
 	}
-
-	mutex_enter(&tq->tq_lock);
 
 	/*
 	 * Observe global taskq limits on the number of threads.
@@ -2192,7 +2224,7 @@ taskq_bucket_extend(void *arg)
 
 	if (tqe == NULL) {
 		mutex_enter(&tq->tq_lock);
-		TQ_STAT(b, tqs_nomem);
+		tq->tq_nomem++;
 		tq->tq_tcreates--;
 		mutex_exit(&tq->tq_lock);
 		return;
@@ -2254,6 +2286,7 @@ taskq_kstat_update(kstat_t *ksp, int rw)
 	tqsp->tq_nalloc.value.ui64 = tq->tq_nalloc;
 	tqsp->tq_pri.value.ui64 = tq->tq_pri;
 	tqsp->tq_nthreads.value.ui64 = tq->tq_nthreads;
+	tqsp->tq_nomem.value.ui64 = tq->tq_nomem;
 	return (0);
 }
 
@@ -2277,6 +2310,7 @@ taskq_d_kstat_update(kstat_t *ksp, int rw)
 	tqsp->tqd_bnactive.value.ui64 = tq->tq_active;
 	tqsp->tqd_btotaltime.value.ui64 = tq->tq_totaltime;
 	tqsp->tqd_pri.value.ui64 = tq->tq_pri;
+	tqsp->tqd_nomem.value.ui64 = tq->tq_nomem;
 
 	tqsp->tqd_hits.value.ui64 = 0;
 	tqsp->tqd_misses.value.ui64 = 0;
@@ -2298,7 +2332,6 @@ taskq_d_kstat_update(kstat_t *ksp, int rw)
 		tqsp->tqd_tdeaths.value.ui64 += b->tqbucket_stat.tqs_tdeaths;
 		tqsp->tqd_maxthreads.value.ui64 +=
 		    b->tqbucket_stat.tqs_maxthreads;
-		tqsp->tqd_nomem.value.ui64 += b->tqbucket_stat.tqs_nomem;
 		tqsp->tqd_disptcreates.value.ui64 +=
 		    b->tqbucket_stat.tqs_disptcreates;
 		tqsp->tqd_totaltime.value.ui64 += b->tqbucket_totaltime;

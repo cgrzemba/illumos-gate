@@ -24,6 +24,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2016 Joyent, Inc.
  */
 
 #include <sys/param.h>
@@ -64,7 +65,7 @@
 uint32_t panicbuf_log = PANICBUFSIZE;
 uint32_t panicbuf_index = PANICBUFSIZE;
 
-static int aask, aok;
+int aask, aok;
 static int ce_to_sl[CE_IGNORE] = { SL_NOTE, SL_NOTE, SL_WARN, SL_FATAL };
 static char ce_prefix[CE_IGNORE][10] = { "", "NOTICE: ", "WARNING: ", "" };
 static char ce_suffix[CE_IGNORE][2] = { "", "\n", "\n", "" };
@@ -269,6 +270,13 @@ void
 vcmn_err(int ce, const char *fmt, va_list adx)
 {
 	vzdcmn_err(GLOBAL_ZONEID, caller(), ce, fmt, adx, NULL);
+}
+
+/*PRINTFLIKE3*/
+void
+vdev_err(dev_info_t *dip, int ce, const char *fmt, va_list adx)
+{
+	vzdcmn_err(GLOBAL_ZONEID, caller(), ce, fmt, adx, dip);
 }
 
 /*PRINTFLIKE2*/

@@ -41,6 +41,14 @@ fi
 #	-rsh is given its environment in its .profile.
 
 case "$0" in
+-bash)
+	# set prompt for bash
+	PS1="\u@\h:\w\\$ "
+	export PS1
+	;;
+esac
+
+case "$0" in
 -sh | -ksh | -ksh93 | -jsh | -bash | -zsh)
 
 	if [ ! -f .hushlogin ]
@@ -53,12 +61,12 @@ case "$0" in
 
 		/bin/mail -E
 		case $? in
-		0) 
+		0)
 			echo "You have new mail."
-		  	;;
-		2) 
+			;;
+		2)
 			echo "You have mail."
-		   	;;
+			;;
 		esac
 	fi
 esac

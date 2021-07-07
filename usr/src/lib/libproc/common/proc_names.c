@@ -22,6 +22,9 @@
 /*
  * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2015, Joyent, Inc.  All rights reserved.
+ * Copyright 2019, Carlos Neira <cneirabustos@gmail.com>
+ * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2020 Oxide Computer Company
  */
 
 #include <stdio.h>
@@ -31,6 +34,7 @@
 #include <signal.h>
 #include <errno.h>
 #include "libproc.h"
+#include <sys/procfs_isa.h>
 
 static const char *
 rawfltname(int flt)
@@ -238,7 +242,7 @@ static const char *const systable[] = {
 	"writev",		/* 122 */
 	"preadv",		/* 123 */
 	"pwritev",		/* 124 */
-	NULL,			/* 125 */
+	"upanic",		/* 125 */
 	"getrandom",		/* 126 */
 	"mmapobj",		/* 127 */
 	"setrlimit",		/* 128 */
@@ -482,7 +486,7 @@ proc_str2sys(const char *str, int *sysnum)
  */
 char *
 proc_fltset2str(const fltset_t *set, const char *delim, int m,
-	char *buf, size_t len)
+    char *buf, size_t len)
 {
 	char name[FLT2STR_MAX], *p = buf;
 	size_t n;
@@ -522,7 +526,7 @@ proc_fltset2str(const fltset_t *set, const char *delim, int m,
  */
 char *
 proc_sigset2str(const sigset_t *set, const char *delim, int m,
-	char *buf, size_t len)
+    char *buf, size_t len)
 {
 	char name[SIG2STR_MAX], *p = buf;
 	size_t n;
@@ -568,7 +572,7 @@ proc_sigset2str(const sigset_t *set, const char *delim, int m,
  */
 char *
 proc_sysset2str(const sysset_t *set, const char *delim, int m,
-	char *buf, size_t len)
+    char *buf, size_t len)
 {
 	char name[SYS2STR_MAX], *p = buf;
 	size_t n;
@@ -702,4 +706,35 @@ proc_str2sysset(const char *s, const char *delim, int m, sysset_t *set)
 			prdelset(set, sys);
 	}
 	return (NULL);
+}
+
+/*
+ * Returns a string representation of a process data model.
+ * See <sys/procfs_isa.h> for possible values.
+ */
+char *
+proc_dmodelname(int dmodel, char *buf, size_t bufsz)
+{
+	static const char *const dmdls[] = {
+	    "PR_MODEL_UNKNOWN",
+	    "PR_MODEL_ILP32",
+	    "PR_MODEL_LP64",
+	    NULL
+	};
+	size_t len;
+
+	if (bufsz == 0)
+		return (NULL);
+
+	if (dmodel > PR_MODEL_LP64 || dmodel < PR_MODEL_UNKNOWN) {
+		len = snprintf(buf, bufsz, "DMODEL#%d", dmodel);
+	} else {
+		len = strlen(dmdls[dmodel]);
+		(void) strncpy(buf, dmdls[dmodel], bufsz);
+	}
+
+	if (len >= bufsz)
+		buf[bufsz-1] = '\0';
+
+	return (buf);
 }

@@ -21,6 +21,8 @@
 #
 # Copyright (c) 2004, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2012 Milan Jurik. All rights reserved.
+# Copyright 2016 Toomas Soome <tsoome@me.com>
+# Copyright (c) 2018, Joyent, Inc.
 #
 
 PROG = svc.startd
@@ -60,8 +62,6 @@ POFILES = $(OBJS:%.o=%.po) \
 include ../../Makefile.cmd
 include ../../Makefile.ctf
 
-ROOTCMDDIR=	$(ROOT)/lib/svc/bin
-
 $(NOT_RELEASE_BUILD)CPPFLAGS += -DDEBUG
 CFLAGS += $(CCVERBOSE)
 CPPFLAGS += -I. -I../common
@@ -69,7 +69,10 @@ CPPFLAGS += -I. -I../common
 CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-switch
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
+
+# these look like real bugs here, but ...
+SMOFF += impossible_mask,signed_integer_overflow_check
 
 $(OBJS) := CPPFLAGS += -D_FILE_OFFSET_BITS=64 -D_REENTRANT
 
@@ -93,9 +96,17 @@ LDLIBS += \
 	-lumem \
 	-luutil
 
-LDLIBS_i386 +=	-lgrubmgmt
-LDLIBS +=	$(LDLIBS_$(MACH)) -L $(ROOT)/lib/fm -lfmevent
-LDFLAGS +=	-R /lib/fm
+#
+# While svc.startd only searches for libfmevent, which is in
+# $(ROOT)/lib/fm, when resolving dependencies it needs to know to search
+# for those in $(ROOT)/usr/lib/fm. However, we don't need a runpath
+# because libfmevent has that properly set already, but it doesn't help
+# us during the build.
+#
+LDLIBS_i386 +=	-lbe
+LDLIBS +=	$(LDLIBS_$(MACH)) -L$(ROOT)/lib/fm -lfmevent \
+		-L$(ROOT)/usr/lib/fm
+LDFLAGS +=	-R/lib/fm
 
 FILEMODE = 0555
 
@@ -118,7 +129,7 @@ $(PROG): $(ALLOBJS)
 $(POFILE): $(POFILES)
 	cat $(POFILES) > $(POFILE)
 
-install: all $(ROOTCMD)
+install: all $(ROOTLIBSVCBINPROG)
 
 clean:
 	$(RM) $(ALLOBJS)

@@ -46,10 +46,10 @@ if (! -e .hushlogin ) then
 	/bin/cat -s /etc/motd
 	/bin/mail -E
 	switch ( $status )
-	case 0: 
+	case 0:
 		echo "You have new mail."
 		breaksw;
-	case 2: 
+	case 2:
 		echo "You have mail."
 		breaksw;
 	endsw

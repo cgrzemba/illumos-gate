@@ -23,6 +23,8 @@
  * Use is subject to license terms.
  *
  * Copyright 2014 Garrett D'Amore <garrett@damore.org>
+ * Copyright 2016 James S. Blachly, MD <james.blachly@gmail.com>
+ * Copyright 2019 Joyent, Inc.
  */
 
 
@@ -34,8 +36,6 @@
 #include <sys/usb/usba/hcdi_impl.h>
 #include <sys/usb/hubd/hub.h>
 #include <sys/fs/dv_node.h>
-
-static int usba_str_startcmp(char *, char *);
 
 /*
  * USBA private variables and tunables
@@ -231,18 +231,18 @@ usba_bus_ctl(dev_info_t	*dip,
 				    usb_get_if_number(rdip));
 			}
 			switch (usba_device->usb_port_status) {
+			case USBA_SUPER_SPEED_DEV:
+				speed = "super speed (USB 3.x)";
+				break;
 			case USBA_HIGH_SPEED_DEV:
 				speed = "hi speed (USB 2.x)";
-
 				break;
 			case USBA_LOW_SPEED_DEV:
 				speed = "low speed (USB 1.x)";
-
 				break;
 			case USBA_FULL_SPEED_DEV:
 			default:
 				speed = "full speed (USB 1.x)";
-
 				break;
 			}
 
@@ -267,7 +267,7 @@ usba_bus_ctl(dev_info_t	*dip,
 			name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 			(void) usba_get_mfg_prod_sn_str(rdip, name, MAXNAMELEN);
 			if (name[0] != '\0') {
-				cmn_err(CE_CONT, "?\t%s\n", name);
+				cmn_err(CE_CONT, "?%s\n", name);
 			}
 			kmem_free(name, MAXNAMELEN);
 
@@ -679,6 +679,16 @@ usba_free_usba_device(usba_device_t *usba_device)
 		}
 	}
 
+	/*
+	 * Give the HCD a chance to clean up this child device before we finish
+	 * tearing things down.
+	 */
+	if (usba_device->usb_hcdi_ops->usba_hcdi_device_fini != NULL) {
+		usba_device->usb_hcdi_ops->usba_hcdi_device_fini(
+		    usba_device, usba_device->usb_hcd_private);
+		usba_device->usb_hcd_private = NULL;
+	}
+
 	mutex_enter(&usba_mutex);
 
 	/* destroy mutex in each usba_ph_impl structure */
@@ -766,6 +776,8 @@ usba_free_usba_device(usba_device_t *usba_device)
 			kmem_free(usba_device->usb_serialno_str,
 			    strlen(usba_device->usb_serialno_str) + 1);
 		}
+
+		usba_free_binary_object_store(usba_device);
 
 		usba_unset_usb_address(usba_device);
 	}
@@ -2253,6 +2265,17 @@ usba_ready_device_node(dev_info_t *child_dip)
 		}
 	}
 
+	if (usba_device->usb_port_status == USBA_FULL_SPEED_DEV) {
+		/* create boolean property */
+		rval = ndi_prop_create_boolean(DDI_DEV_T_NONE, child_dip,
+		    "full-speed");
+		if (rval != DDI_PROP_SUCCESS) {
+			USB_DPRINTF_L2(DPRINT_MASK_USBA, usba_log_handle,
+			    "usba_ready_device_node: "
+			    "full speed prop update failed");
+		}
+	}
+
 	if (usba_device->usb_port_status == USBA_HIGH_SPEED_DEV) {
 		/* create boolean property */
 		rval = ndi_prop_create_boolean(DDI_DEV_T_NONE, child_dip,
@@ -2263,6 +2286,18 @@ usba_ready_device_node(dev_info_t *child_dip)
 			    "high speed prop update failed");
 		}
 	}
+
+	if (usba_device->usb_port_status == USBA_SUPER_SPEED_DEV) {
+		rval = ndi_prop_create_boolean(DDI_DEV_T_NONE, child_dip,
+		    "super-speed");
+		if (rval != DDI_PROP_SUCCESS) {
+			USB_DPRINTF_L2(DPRINT_MASK_USBA, usba_log_handle,
+			    "usba_ready_device_node: "
+			    "super speed prop update failed");
+		}
+	}
+
+	usba_add_binary_object_store_props(child_dip, usba_device);
 
 	USB_DPRINTF_L4(DPRINT_MASK_USBA, usba_log_handle,
 	    "%s%d at port %d: %s, dip=0x%p",
@@ -2830,28 +2865,6 @@ usba_get_dev_string_descrs(dev_info_t *dip, usba_device_t *ud)
 
 
 /*
- * usba_str_startcmp:
- *	Return the number of characters duplicated from the beginning of the
- *	string.  Return -1 if a complete duplicate.
- *
- * Arguments:
- *	Two strings to compare.
- */
-static int usba_str_startcmp(char *first, char *second)
-{
-	int num_same_chars = 0;
-	while (*first == *second++) {
-		if (*first++ == '\0') {
-			return (-1);
-		}
-		num_same_chars++;
-	}
-
-	return (num_same_chars);
-}
-
-
-/*
  * usba_get_mfg_prod_sn_str:
  *	Return a string containing mfg, product, serial number strings.
  *	Remove duplicates if some strings are the same.
@@ -2873,11 +2886,11 @@ usba_get_mfg_prod_sn_str(
 	usba_device_t *usba_device = usba_get_usba_device(dip);
 	int return_len = 0;
 	int len = 0;
-	int duplen;
 
 	buffer[0] = '\0';
 	buffer[buflen-1] = '\0';
 
+	/* Manufacturer string exists. */
 	if ((usba_device->usb_mfg_str) &&
 	    ((len = strlen(usba_device->usb_mfg_str)) != 0)) {
 		(void) strncpy(buffer, usba_device->usb_mfg_str, buflen - 1);
@@ -2887,25 +2900,15 @@ usba_get_mfg_prod_sn_str(
 	/* Product string exists to append. */
 	if ((usba_device->usb_product_str) &&
 	    ((len = strlen(usba_device->usb_product_str)) != 0)) {
-
-		/* Append only parts of string that don't match mfg string. */
-		duplen = usba_str_startcmp(buffer,
-		    usba_device->usb_product_str);
-
-		if (duplen != -1) {		/* Not a complete match. */
-			if (return_len > 0) {
-				buffer[return_len++] = ' ';
-			}
-
-			/* Skip over the dup part of the concat'ed string. */
-			len -= duplen;
-			(void) strncpy(&buffer[return_len],
-			    &usba_device->usb_product_str[duplen],
-			    buflen - return_len - 1);
-			return_len = min(buflen - 1, return_len + len);
+		if (return_len > 0) {
+			buffer[return_len++] = ' ';
 		}
+		(void) strncpy(&buffer[return_len],
+		    usba_device->usb_product_str, buflen - return_len - 1);
+		return_len = min(buflen - 1, return_len + len);
 	}
 
+	/* Serial number string exists to append. */
 	if ((usba_device->usb_serialno_str) &&
 	    ((len = strlen(usba_device->usb_serialno_str)) != 0)) {
 		if (return_len > 0) {
@@ -2918,7 +2921,6 @@ usba_get_mfg_prod_sn_str(
 
 	return (buffer);
 }
-
 
 /*
  * USB enumeration statistic functions

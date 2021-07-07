@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc. All rights reserved.
  */
 
 #include <sys/sunddi.h>
@@ -104,7 +104,7 @@ smb_pre_delete(smb_request_t *sr)
 	if ((rc = smbsr_decode_vwv(sr, "w", &fqi->fq_sattr)) == 0)
 		rc = smbsr_decode_data(sr, "%S", sr, &fqi->fq_path.pn_path);
 
-	DTRACE_SMB_2(op__Delete__start, smb_request_t *, sr, smb_fqi_t *, fqi);
+	DTRACE_SMB_START(op__Delete, smb_request_t *, sr); /* arg.dirop */
 
 	return ((rc == 0) ? SDRC_SUCCESS : SDRC_ERROR);
 }
@@ -112,7 +112,7 @@ smb_pre_delete(smb_request_t *sr)
 void
 smb_post_delete(smb_request_t *sr)
 {
-	DTRACE_SMB_1(op__Delete__done, smb_request_t *, sr);
+	DTRACE_SMB_DONE(op__Delete, smb_request_t *, sr);
 }
 
 /*
@@ -282,11 +282,11 @@ smb_delete_single_file(smb_request_t *sr, smb_error_t *err)
 static int
 smb_delete_multiple_files(smb_request_t *sr, smb_error_t *err)
 {
-	int rc, deleted = 0;
-	smb_fqi_t *fqi;
-	uint16_t odid;
-	smb_odir_t *od;
 	char namebuf[MAXNAMELEN];
+	smb_fqi_t *fqi;
+	smb_odir_t *od;
+	uint32_t status;
+	int rc, deleted = 0;
 
 	fqi = &sr->arg.dirop.fqi;
 
@@ -294,13 +294,12 @@ smb_delete_multiple_files(smb_request_t *sr, smb_error_t *err)
 	 * Specify all search attributes (SMB_SEARCH_ATTRIBUTES) so that
 	 * delete-specific checking can be done (smb_delete_check_dosattr).
 	 */
-	odid = smb_odir_open(sr, fqi->fq_path.pn_path,
-	    SMB_SEARCH_ATTRIBUTES, 0);
-	if (odid == 0)
+	status = smb_odir_openpath(sr, fqi->fq_path.pn_path,
+	    SMB_SEARCH_ATTRIBUTES, 0, &od);
+	if (status != 0) {
+		err->status = status;
 		return (-1);
-
-	if ((od = smb_tree_lookup_odir(sr, odid)) == NULL)
-		return (-1);
+	}
 
 	for (;;) {
 		rc = smb_delete_find_fname(sr, od, namebuf, MAXNAMELEN);
@@ -379,10 +378,7 @@ smb_delete_find_fname(smb_request_t *sr, smb_odir_t *od, char *namebuf, int len)
 
 	rc = smb_odir_read(sr, od, odirent, &eos);
 	if (rc == 0) {
-		if (eos)
-			rc = ENOENT;
-		else
-			(void) strlcpy(namebuf, odirent->od_name, len);
+		(void) strlcpy(namebuf, odirent->od_name, len);
 	}
 	kmem_free(odirent, sizeof (smb_odirent_t));
 	return (rc);
@@ -474,7 +470,7 @@ smb_delete_check_dosattr(smb_request_t *sr, smb_error_t *err)
 static int
 smb_delete_remove_file(smb_request_t *sr, smb_error_t *err)
 {
-	int rc, count;
+	int rc;
 	uint32_t status;
 	smb_fqi_t *fqi;
 	smb_node_t *node;
@@ -488,28 +484,22 @@ smb_delete_remove_file(smb_request_t *sr, smb_error_t *err)
 	 * has a file open, this will force a flush or close,
 	 * which may affect the outcome of any share checking.
 	 */
-	(void) smb_oplock_break(sr, node,
-	    SMB_OPLOCK_BREAK_TO_LEVEL_II | SMB_OPLOCK_BREAK_BATCH);
-
-	/*
-	 * Wait (a little) for the oplock break to be
-	 * responded to by clients closing handles.
-	 * Hold node->n_lock as reader to keep new
-	 * ofiles from showing up after we check.
-	 */
-	smb_node_rdlock(node);
-	for (count = 0; count <= 12; count++) {
-		status = smb_node_delete_check(node);
-		if (status != NT_STATUS_SHARING_VIOLATION)
-			break;
-		smb_node_unlock(node);
-		delay(MSEC_TO_TICK(100));
-		smb_node_rdlock(node);
+	status = smb_oplock_break_DELETE(node, NULL);
+	if (status == NT_STATUS_OPLOCK_BREAK_IN_PROGRESS) {
+		(void) smb_oplock_wait_break(node, 0);
+		status = 0;
 	}
+	if (status != 0) {
+		err->status = status;
+		return (-1);
+	}
+
+	smb_node_rdlock(node);
+	status = smb_node_delete_check(node);
 	if (status != NT_STATUS_SUCCESS) {
+		smb_node_unlock(node);
 		smb_delete_error(err, NT_STATUS_SHARING_VIOLATION,
 		    ERRDOS, ERROR_SHARING_VIOLATION);
-		smb_node_unlock(node);
 		return (-1);
 	}
 
@@ -548,18 +538,12 @@ smb_delete_remove_file(smb_request_t *sr, smb_error_t *err)
 	rc = smb_fsop_remove(sr, sr->user_cr, node->n_dnode,
 	    node->od_name, flags);
 	if (rc != 0) {
-		if (rc == ENOENT)
-			smb_delete_error(err, NT_STATUS_OBJECT_NAME_NOT_FOUND,
-			    ERRDOS, ERROR_FILE_NOT_FOUND);
-		else
-			smbsr_map_errno(rc, err);
-
-		smb_node_end_crit(node);
-		return (-1);
+		smbsr_map_errno(rc, err);
+		rc = -1;
 	}
 
 	smb_node_end_crit(node);
-	return (0);
+	return (rc);
 }
 
 

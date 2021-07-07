@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2020 Nexenta by DDN, Inc. All rights reserved.
  */
 
 #include <sys/sid.h>
@@ -29,13 +29,14 @@
 #include <smbsrv/smb_kproto.h>
 #include <acl/acl_common.h>
 #include <sys/fcntl.h>
+#include <sys/filio.h>
 #include <sys/flock.h>
 #include <fs/fs_subr.h>
 
 extern caller_context_t smb_ct;
 
-static int smb_fsop_create_stream(smb_request_t *, cred_t *, smb_node_t *,
-    char *, char *, int, smb_attr_t *, smb_node_t **);
+static int smb_fsop_create_file_with_stream(smb_request_t *, cred_t *,
+    smb_node_t *, char *, char *, int, smb_attr_t *, smb_node_t **);
 
 static int smb_fsop_create_file(smb_request_t *, cred_t *, smb_node_t *,
     char *, int, smb_attr_t *, smb_node_t **);
@@ -135,6 +136,7 @@ smb_fsop_create_with_sd(smb_request_t *sr, cred_t *cr,
 	boolean_t is_dir;
 
 	ASSERT(fs_sd);
+	ASSERT(ret_snode != NULL);
 
 	if (SMB_TREE_IS_CASEINSENSITIVE(sr))
 		flags = SMB_IGNORE_CASE;
@@ -146,10 +148,9 @@ smb_fsop_create_with_sd(smb_request_t *sr, cred_t *cr,
 	is_dir = ((fs_sd->sd_flags & SMB_FSSD_FLAGS_DIR) != 0);
 
 	if (smb_tree_has_feature(sr->tid_tree, SMB_TREE_ACLONCREATE)) {
-		if (fs_sd->sd_secinfo & SMB_ACL_SECINFO) {
-			dacl = fs_sd->sd_zdacl;
-			sacl = fs_sd->sd_zsacl;
-			ASSERT(dacl || sacl);
+		dacl = fs_sd->sd_zdacl;
+		sacl = fs_sd->sd_zsacl;
+		if (dacl != NULL || sacl != NULL) {
 			if (dacl && sacl) {
 				acl = smb_fsacl_merge(dacl, sacl);
 			} else if (dacl) {
@@ -319,7 +320,7 @@ smb_fsop_create(smb_request_t *sr, cred_t *cr, smb_node_t *dnode,
 		sname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 		smb_stream_parse_name(name, fname, sname);
 
-		rc = smb_fsop_create_stream(sr, cr, dnode,
+		rc = smb_fsop_create_file_with_stream(sr, cr, dnode,
 		    fname, sname, flags, attr, ret_snode);
 
 		kmem_free(fname, MAXNAMELEN);
@@ -348,40 +349,44 @@ smb_fsop_create(smb_request_t *sr, cred_t *cr, smb_node_t *dnode,
 
 
 /*
- * smb_fsop_create_stream
+ * smb_fsop_create_file_with_stream
  *
- * Create NTFS named stream file (sname) on unnamed stream
- * file (fname), creating the unnamed stream file if it
+ * Create named stream (sname) on file (fname), creating the file if it
  * doesn't exist.
- * If we created the unnamed stream file and then creation
- * of the named stream file fails, we delete the unnamed stream.
+ * If we created the file and then creation of the named stream fails,
+ * we delete the file.
  * Since we use the real file name for the smb_vop_remove we
  * clear the SMB_IGNORE_CASE flag to ensure a case sensitive
  * match.
  *
- * The second parameter of smb_vop_setattr() is set to
- * NULL, even though an unnamed stream exists.  This is
- * because we want to set the UID and GID on the named
- * stream in this case for consistency with the (unnamed
- * stream) file (see comments for smb_vop_setattr()).
+ * Note that some stream "types" are "restricted" and only
+ * internal callers (cr == kcred) can create those.
  */
 static int
-smb_fsop_create_stream(smb_request_t *sr, cred_t *cr,
+smb_fsop_create_file_with_stream(smb_request_t *sr, cred_t *cr,
     smb_node_t *dnode, char *fname, char *sname, int flags,
     smb_attr_t *attr, smb_node_t **ret_snode)
 {
-	smb_attr_t	fattr;
 	smb_node_t	*fnode;
-	vnode_t		*xattrdvp;
-	vnode_t		*vp;
 	cred_t		*kcr = zone_kcred();
 	int		rc = 0;
 	boolean_t	fcreate = B_FALSE;
 
+	ASSERT(ret_snode != NULL);
+
+	if (cr != kcr && smb_strname_restricted(sname))
+		return (EACCES);
+
 	/* Look up / create the unnamed stream, fname */
 	rc = smb_fsop_lookup(sr, cr, flags | SMB_FOLLOW_LINKS,
 	    sr->tid_tree->t_snode, dnode, fname, &fnode);
-	if (rc == ENOENT) {
+	if (rc == 0) {
+		if (smb_fsop_access(sr, sr->user_cr, fnode,
+		    sr->sr_open.desired_access) != 0) {
+			smb_node_release(fnode);
+			rc = EACCES;
+		}
+	} else if (rc == ENOENT) {
 		fcreate = B_TRUE;
 		rc = smb_fsop_create_file(sr, cr, dnode, fname, flags,
 		    attr, &fnode);
@@ -389,23 +394,62 @@ smb_fsop_create_stream(smb_request_t *sr, cred_t *cr,
 	if (rc != 0)
 		return (rc);
 
-	fattr.sa_mask = SMB_AT_UID | SMB_AT_GID;
-	rc = smb_vop_getattr(fnode->vp, NULL, &fattr, 0, kcr);
+	rc = smb_fsop_create_stream(sr, cr, dnode, fnode, sname, flags, attr,
+	    ret_snode);
 
-	if (rc == 0) {
-		/* create the named stream, sname */
-		rc = smb_vop_stream_create(fnode->vp, sname, attr,
-		    &vp, &xattrdvp, flags, cr);
-	}
 	if (rc != 0) {
 		if (fcreate) {
 			flags &= ~SMB_IGNORE_CASE;
 			(void) smb_vop_remove(dnode->vp,
 			    fnode->od_name, flags, cr);
 		}
-		smb_node_release(fnode);
-		return (rc);
 	}
+
+	smb_node_release(fnode);
+	return (rc);
+}
+
+/*
+ * smb_fsop_create_stream
+ *
+ * Create named stream (sname) on existing file (fnode).
+ *
+ * The second parameter of smb_vop_setattr() is set to
+ * NULL, even though an unnamed stream exists.  This is
+ * because we want to set the UID and GID on the named
+ * stream in this case for consistency with the (unnamed
+ * stream) file (see comments for smb_vop_setattr()).
+ *
+ * Note that some stream "types" are "restricted" and only
+ * internal callers (cr == kcred) can create those.
+ */
+int
+smb_fsop_create_stream(smb_request_t *sr, cred_t *cr,
+    smb_node_t *dnode, smb_node_t *fnode, char *sname, int flags,
+    smb_attr_t *attr, smb_node_t **ret_snode)
+{
+	smb_attr_t	fattr;
+	vnode_t		*xattrdvp;
+	vnode_t		*vp;
+	cred_t		*kcr = zone_kcred();
+	int		rc = 0;
+
+	ASSERT(ret_snode != NULL);
+
+	if (cr != kcr && smb_strname_restricted(sname))
+		return (EACCES);
+
+	bzero(&fattr, sizeof (fattr));
+	fattr.sa_mask = SMB_AT_UID | SMB_AT_GID;
+	rc = smb_vop_getattr(fnode->vp, NULL, &fattr, 0, kcr);
+
+	if (rc == 0) {
+		/* create the named stream, sname */
+		rc = smb_vop_stream_create(fnode->vp, sname,
+		    attr, &vp, &xattrdvp, flags, cr);
+	}
+	if (rc != 0)
+		return (rc);
 
 	attr->sa_vattr.va_uid = fattr.sa_vattr.va_uid;
 	attr->sa_vattr.va_gid = fattr.sa_vattr.va_gid;
@@ -413,14 +457,14 @@ smb_fsop_create_stream(smb_request_t *sr, cred_t *cr,
 
 	rc = smb_vop_setattr(vp, NULL, attr, 0, kcr);
 	if (rc != 0) {
-		smb_node_release(fnode);
+		VN_RELE(xattrdvp);
+		VN_RELE(vp);
 		return (rc);
 	}
 
 	*ret_snode = smb_stream_node_lookup(sr, cr, fnode, xattrdvp,
 	    vp, sname);
 
-	smb_node_release(fnode);
 	VN_RELE(xattrdvp);
 	VN_RELE(vp);
 
@@ -430,7 +474,7 @@ smb_fsop_create_stream(smb_request_t *sr, cred_t *cr,
 	/* notify change to the unnamed stream */
 	if (rc == 0)
 		smb_node_notify_change(dnode,
-		    FILE_ACTION_ADDED_STREAM, fname);
+		    FILE_ACTION_ADDED_STREAM, fnode->od_name);
 
 	return (rc);
 }
@@ -447,6 +491,8 @@ smb_fsop_create_file(smb_request_t *sr, cred_t *cr,
 	vnode_t		*vp;
 	int		rc;
 
+	ASSERT(ret_snode != NULL);
+
 #ifdef	_KERNEL
 	smb_fssd_t	fs_sd;
 	uint32_t	secinfo;
@@ -455,15 +501,24 @@ smb_fsop_create_file(smb_request_t *sr, cred_t *cr,
 	if (op->sd) {
 		/*
 		 * SD sent by client in Windows format. Needs to be
-		 * converted to FS format. No inheritance.
+		 * converted to FS format. Inherit DACL/SACL if they're not
+		 * specified.
 		 */
 		secinfo = smb_sd_get_secinfo(op->sd);
+
+		if ((secinfo & SMB_SACL_SECINFO) != 0 &&
+		    !smb_user_has_security_priv(sr->uid_user, cr))
+			return (EPERM);
+
 		smb_fssd_init(&fs_sd, secinfo, 0);
 
 		status = smb_sd_tofs(op->sd, &fs_sd);
 		if (status == NT_STATUS_SUCCESS) {
-			rc = smb_fsop_create_with_sd(sr, cr, dnode,
-			    name, attr, ret_snode, &fs_sd);
+			rc = smb_fsop_sdinherit(sr, dnode, &fs_sd);
+			if (rc == 0)
+				rc = smb_fsop_create_with_sd(sr, cr, dnode,
+				    name, attr, ret_snode, &fs_sd);
+
 		} else {
 			rc = EINVAL;
 		}
@@ -474,7 +529,7 @@ smb_fsop_create_file(smb_request_t *sr, cred_t *cr,
 		 * Server applies Windows inheritance rules,
 		 * see smb_fsop_sdinherit() comments as to why.
 		 */
-		smb_fssd_init(&fs_sd, SMB_ACL_SECINFO, 0);
+		smb_fssd_init(&fs_sd, 0, 0);
 		rc = smb_fsop_sdinherit(sr, dnode, &fs_sd);
 		if (rc == 0) {
 			rc = smb_fsop_create_with_sd(sr, cr, dnode,
@@ -596,15 +651,23 @@ smb_fsop_mkdir(
 	if (op->sd) {
 		/*
 		 * SD sent by client in Windows format. Needs to be
-		 * converted to FS format. No inheritance.
+		 * converted to FS format. Inherit DACL/SACL if they're not
+		 * specified.
 		 */
 		secinfo = smb_sd_get_secinfo(op->sd);
+
+		if ((secinfo & SMB_SACL_SECINFO) != 0 &&
+		    !smb_user_has_security_priv(sr->uid_user, cr))
+			return (EPERM);
+
 		smb_fssd_init(&fs_sd, secinfo, SMB_FSSD_FLAGS_DIR);
 
 		status = smb_sd_tofs(op->sd, &fs_sd);
 		if (status == NT_STATUS_SUCCESS) {
-			rc = smb_fsop_create_with_sd(sr, cr, dnode,
-			    name, attr, ret_snode, &fs_sd);
+			rc = smb_fsop_sdinherit(sr, dnode, &fs_sd);
+			if (rc == 0)
+				rc = smb_fsop_create_with_sd(sr, cr, dnode,
+				    name, attr, ret_snode, &fs_sd);
 		}
 		else
 			rc = EINVAL;
@@ -615,7 +678,7 @@ smb_fsop_mkdir(
 		 * Server applies Windows inheritance rules,
 		 * see smb_fsop_sdinherit() comments as to why.
 		 */
-		smb_fssd_init(&fs_sd, SMB_ACL_SECINFO, SMB_FSSD_FLAGS_DIR);
+		smb_fssd_init(&fs_sd, 0, SMB_FSSD_FLAGS_DIR);
 		rc = smb_fsop_sdinherit(sr, dnode, &fs_sd);
 		if (rc == 0) {
 			rc = smb_fsop_create_with_sd(sr, cr, dnode,
@@ -658,6 +721,9 @@ smb_fsop_mkdir(
  * It is assumed that a reference exists on snode coming into this routine.
  *
  * A null smb_request might be passed to this function.
+ *
+ * Note that some stream "types" are "restricted" and only
+ * internal callers (cr == kcred) can remove those.
  */
 int
 smb_fsop_remove(
@@ -693,6 +759,11 @@ smb_fsop_remove(
 	sname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 
 	if (dnode->flags & NODE_XATTR_DIR) {
+		if (cr != zone_kcred() && smb_strname_restricted(name)) {
+			rc = EACCES;
+			goto out;
+		}
+
 		fnode = dnode->n_dnode;
 		rc = smb_vop_stream_remove(fnode->vp, name, flags, cr);
 
@@ -704,6 +775,11 @@ smb_fsop_remove(
 	} else if (smb_is_stream_name(name)) {
 		smb_stream_parse_name(name, fname, sname);
 
+		if (cr != zone_kcred() && smb_strname_restricted(sname)) {
+			rc = EACCES;
+			goto out;
+		}
+
 		/*
 		 * Look up the unnamed stream (i.e. fname).
 		 * Unmangle processing will be done on fname
@@ -714,9 +790,7 @@ smb_fsop_remove(
 		    sr->tid_tree->t_snode, dnode, fname, &fnode);
 
 		if (rc != 0) {
-			kmem_free(fname, MAXNAMELEN);
-			kmem_free(sname, MAXNAMELEN);
-			return (rc);
+			goto out;
 		}
 
 		/*
@@ -739,9 +813,7 @@ smb_fsop_remove(
 		if (rc == ENOENT) {
 			if (!SMB_TREE_SUPPORTS_SHORTNAMES(sr) ||
 			    !smb_maybe_mangled(name)) {
-				kmem_free(fname, MAXNAMELEN);
-				kmem_free(sname, MAXNAMELEN);
-				return (rc);
+				goto out;
 			}
 			longname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 
@@ -771,6 +843,7 @@ smb_fsop_remove(
 		}
 	}
 
+out:
 	kmem_free(fname, MAXNAMELEN);
 	kmem_free(sname, MAXNAMELEN);
 
@@ -785,13 +858,13 @@ smb_fsop_remove(
  *
  * It is assumed that fnode is not a link.
  */
-int
+uint32_t
 smb_fsop_remove_streams(smb_request_t *sr, cred_t *cr, smb_node_t *fnode)
 {
 	int rc, flags = 0;
-	uint16_t odid;
 	smb_odir_t *od;
 	smb_odirent_t *odirent;
+	uint32_t status;
 	boolean_t eos;
 
 	ASSERT(sr);
@@ -800,15 +873,11 @@ smb_fsop_remove_streams(smb_request_t *sr, cred_t *cr, smb_node_t *fnode)
 	ASSERT(fnode->n_magic == SMB_NODE_MAGIC);
 	ASSERT(fnode->n_state != SMB_NODE_STATE_DESTROYING);
 
-	if (SMB_TREE_CONTAINS_NODE(sr, fnode) == 0) {
-		smbsr_errno(sr, EACCES);
-		return (-1);
-	}
+	if (SMB_TREE_CONTAINS_NODE(sr, fnode) == 0)
+		return (NT_STATUS_ACCESS_DENIED);
 
-	if (SMB_TREE_IS_READONLY(sr)) {
-		smbsr_errno(sr, EROFS);
-		return (-1);
-	}
+	if (SMB_TREE_IS_READONLY(sr))
+		return (NT_STATUS_ACCESS_DENIED);
 
 	if (SMB_TREE_IS_CASEINSENSITIVE(sr))
 		flags = SMB_IGNORE_CASE;
@@ -816,14 +885,17 @@ smb_fsop_remove_streams(smb_request_t *sr, cred_t *cr, smb_node_t *fnode)
 	if (SMB_TREE_SUPPORTS_CATIA(sr))
 		flags |= SMB_CATIA;
 
-	if ((odid = smb_odir_openat(sr, fnode)) == 0) {
-		smbsr_errno(sr, ENOENT);
-		return (-1);
-	}
-
-	if ((od = smb_tree_lookup_odir(sr, odid)) == NULL) {
-		smbsr_errno(sr, ENOENT);
-		return (-1);
+	status = smb_odir_openat(sr, fnode, &od);
+	switch (status) {
+	case 0:
+		break;
+	case NT_STATUS_OBJECT_NAME_NOT_FOUND:
+	case NT_STATUS_NO_SUCH_FILE:
+	case NT_STATUS_NOT_SUPPORTED:
+		/* No streams to remove. */
+		return (0);
+	default:
+		return (status);
 	}
 
 	odirent = kmem_alloc(sizeof (smb_odirent_t), KM_SLEEP);
@@ -835,10 +907,14 @@ smb_fsop_remove_streams(smb_request_t *sr, cred_t *cr, smb_node_t *fnode)
 		    flags, cr);
 	}
 	kmem_free(odirent, sizeof (smb_odirent_t));
+	if (eos && rc == ENOENT)
+		rc = 0;
 
 	smb_odir_close(od);
 	smb_odir_release(od);
-	return (rc);
+	if (rc)
+		status = smb_errno2status(rc);
+	return (status);
 }
 
 /*
@@ -1237,25 +1313,6 @@ smb_fsop_setattr(
 		return (EACCES);
 
 	/*
-	 * The file system cannot detect pending READDONLY
-	 * (i.e. if the file has been opened readonly but
-	 * not yet closed) so we need to test READONLY here.
-	 *
-	 * Note that file handle that were opened before the
-	 * READONLY flag was set in the node (or the FS) are
-	 * immune to that change, and remain writable.
-	 */
-	if (sr && (set_attr->sa_mask & SMB_AT_SIZE)) {
-		if (sr->fid_ofile) {
-			if (SMB_OFILE_IS_READONLY(sr->fid_ofile))
-				return (EACCES);
-		} else {
-			if (SMB_PATHFILE_IS_READONLY(sr, snode))
-				return (EACCES);
-		}
-	}
-
-	/*
 	 * SMB checks access on open and retains an access granted
 	 * mask for use while the file is open.  ACL changes should
 	 * not affect access to an open file.
@@ -1310,6 +1367,59 @@ smb_fsop_setattr(
 }
 
 /*
+ * Support for SMB2 setinfo FileValidDataLengthInformation.
+ * Free (zero out) data in the range off, off+len
+ */
+int
+smb_fsop_freesp(
+    smb_request_t	*sr,
+    cred_t		*cr,
+    smb_ofile_t		*ofile,
+    off64_t		off,
+    off64_t		len)
+{
+	flock64_t flk;
+	smb_node_t *node = ofile->f_node;
+	uint32_t status;
+	uint32_t access = FILE_WRITE_DATA;
+	int rc;
+
+	ASSERT(cr);
+	ASSERT(node);
+	ASSERT(node->n_magic == SMB_NODE_MAGIC);
+	ASSERT(node->n_state != SMB_NODE_STATE_DESTROYING);
+
+	if (SMB_TREE_CONTAINS_NODE(sr, node) == 0)
+		return (EACCES);
+
+	if (SMB_TREE_IS_READONLY(sr))
+		return (EROFS);
+
+	if (SMB_TREE_HAS_ACCESS(sr, access) == 0)
+		return (EACCES);
+
+	/*
+	 * SMB checks access on open and retains an access granted
+	 * mask for use while the file is open.  ACL changes should
+	 * not affect access to an open file.
+	 *
+	 * If the setattr is being performed on an ofile:
+	 * - Check the ofile's access granted mask to see if this
+	 *   modification should be permitted (FILE_WRITE_DATA)
+	 */
+	status = smb_ofile_access(sr->fid_ofile, cr, access);
+	if (status != NT_STATUS_SUCCESS)
+		return (EACCES);
+
+	bzero(&flk, sizeof (flk));
+	flk.l_start = off;
+	flk.l_len = len;
+
+	rc = smb_vop_space(node->vp, F_FREESP, &flk, FWRITE, 0LL, cr);
+	return (rc);
+}
+
+/*
  * smb_fsop_read
  *
  * All SMB functions should use this wrapper to ensure that
@@ -1318,12 +1428,15 @@ smb_fsop_setattr(
  * for avoiding this wrapper.
  *
  * It is assumed that a reference exists on snode coming into this routine.
+ * Note that ofile may be different from sr->fid_ofile, or may be NULL.
  */
 int
-smb_fsop_read(smb_request_t *sr, cred_t *cr, smb_node_t *snode, uio_t *uio)
+smb_fsop_read(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
+    smb_ofile_t *ofile, uio_t *uio, int ioflag)
 {
 	caller_context_t ct;
 	cred_t *kcr = zone_kcred();
+	uint32_t amask;
 	int svmand;
 	int rc;
 
@@ -1333,18 +1446,26 @@ smb_fsop_read(smb_request_t *sr, cred_t *cr, smb_node_t *snode, uio_t *uio)
 	ASSERT(snode->n_state != SMB_NODE_STATE_DESTROYING);
 
 	ASSERT(sr);
-	ASSERT(sr->fid_ofile);
 
-	if (SMB_TREE_HAS_ACCESS(sr, ACE_READ_DATA) == 0)
-		return (EACCES);
+	if (ofile != NULL) {
+		/*
+		 * Check tree access.  Not SMB_TREE_HAS_ACCESS
+		 * because we need to use ofile->f_tree
+		 */
+		if ((ofile->f_tree->t_access & ACE_READ_DATA) == 0)
+			return (EACCES);
 
-	rc = smb_ofile_access(sr->fid_ofile, cr, FILE_READ_DATA);
-	if ((rc != NT_STATUS_SUCCESS) &&
-	    (sr->smb_flg2 & SMB_FLAGS2_READ_IF_EXECUTE))
-		rc = smb_ofile_access(sr->fid_ofile, cr, FILE_EXECUTE);
-
-	if (rc != NT_STATUS_SUCCESS)
-		return (EACCES);
+		/*
+		 * Check ofile access.  Use in-line smb_ofile_access
+		 * so we can check both amask bits at the same time.
+		 * If any bit in amask is granted, allow this read.
+		 */
+		amask = FILE_READ_DATA;
+		if (sr->smb_flg2 & SMB_FLAGS2_READ_IF_EXECUTE)
+			amask |= FILE_EXECUTE;
+		if (cr != kcr && (ofile->f_granted_access & amask) == 0)
+			return (EACCES);
+	}
 
 	/*
 	 * Streams permission are checked against the unnamed stream,
@@ -1362,17 +1483,25 @@ smb_fsop_read(smb_request_t *sr, cred_t *cr, smb_node_t *snode, uio_t *uio)
 		return (rc);
 	}
 
-	ct = smb_ct;
-	ct.cc_pid = sr->fid_ofile->f_uniqid;
-	rc = nbl_lock_conflict(snode->vp, NBL_READ, uio->uio_loffset,
-	    uio->uio_iov->iov_len, svmand, &ct);
-
-	if (rc) {
-		smb_node_end_crit(snode);
-		return (ERANGE);
+	/*
+	 * Note: SMB allows a zero-byte read, which should not
+	 * conflict with any locks.  However nbl_lock_conflict
+	 * takes a zero-byte length as lock to EOF, so we must
+	 * special case that here.
+	 */
+	if (uio->uio_resid > 0) {
+		ct = smb_ct;
+		if (ofile != NULL)
+			ct.cc_pid = ofile->f_uniqid;
+		rc = nbl_lock_conflict(snode->vp, NBL_READ, uio->uio_loffset,
+		    uio->uio_resid, svmand, &ct);
+		if (rc != 0) {
+			smb_node_end_crit(snode);
+			return (ERANGE);
+		}
 	}
 
-	rc = smb_vop_read(snode->vp, uio, cr);
+	rc = smb_vop_read(snode->vp, uio, ioflag, cr);
 	smb_node_end_crit(snode);
 
 	return (rc);
@@ -1381,26 +1510,26 @@ smb_fsop_read(smb_request_t *sr, cred_t *cr, smb_node_t *snode, uio_t *uio)
 /*
  * smb_fsop_write
  *
- * This is a wrapper function used for smb_write and smb_write_raw operations.
- *
  * It is assumed that a reference exists on snode coming into this routine.
+ * Note that ofile may be different from sr->fid_ofile, or may be NULL.
  */
 int
 smb_fsop_write(
     smb_request_t *sr,
     cred_t *cr,
     smb_node_t *snode,
+    smb_ofile_t *ofile,
     uio_t *uio,
     uint32_t *lcount,
     int ioflag)
 {
 	caller_context_t ct;
 	smb_attr_t attr;
+	cred_t *kcr = zone_kcred();
 	smb_node_t *u_node;
 	vnode_t *u_vp = NULL;
-	smb_ofile_t *of;
 	vnode_t *vp;
-	cred_t *kcr = zone_kcred();
+	uint32_t amask;
 	int svmand;
 	int rc;
 
@@ -1410,21 +1539,21 @@ smb_fsop_write(
 	ASSERT(snode->n_state != SMB_NODE_STATE_DESTROYING);
 
 	ASSERT(sr);
-	ASSERT(sr->tid_tree);
-	of = sr->fid_ofile;
 	vp = snode->vp;
 
-	if (SMB_TREE_IS_READONLY(sr))
-		return (EROFS);
+	if (ofile != NULL) {
+		amask = FILE_WRITE_DATA | FILE_APPEND_DATA;
 
-	if (SMB_OFILE_IS_READONLY(of) ||
-	    SMB_TREE_HAS_ACCESS(sr, ACE_WRITE_DATA | ACE_APPEND_DATA) == 0)
-		return (EACCES);
+		/* Check tree access. */
+		if ((ofile->f_tree->t_access & amask) == 0)
+			return (EROFS);
 
-	rc = smb_ofile_access(of, cr, FILE_WRITE_DATA);
-	if (rc != NT_STATUS_SUCCESS) {
-		rc = smb_ofile_access(of, cr, FILE_APPEND_DATA);
-		if (rc != NT_STATUS_SUCCESS)
+		/*
+		 * Check ofile access.  Use in-line smb_ofile_access
+		 * so we can check both amask bits at the same time.
+		 * If any bit in amask is granted, allow this write.
+		 */
+		if (cr != kcr && (ofile->f_granted_access & amask) == 0)
 			return (EACCES);
 	}
 
@@ -1442,21 +1571,29 @@ smb_fsop_write(
 		cr = kcr;
 	}
 
-	smb_node_start_crit(snode, RW_WRITER);
+	smb_node_start_crit(snode, RW_READER);
 	rc = nbl_svmand(vp, kcr, &svmand);
 	if (rc) {
 		smb_node_end_crit(snode);
 		return (rc);
 	}
 
-	ct = smb_ct;
-	ct.cc_pid = of->f_uniqid;
-	rc = nbl_lock_conflict(vp, NBL_WRITE, uio->uio_loffset,
-	    uio->uio_iov->iov_len, svmand, &ct);
-
-	if (rc) {
-		smb_node_end_crit(snode);
-		return (ERANGE);
+	/*
+	 * Note: SMB allows a zero-byte write, which should not
+	 * conflict with any locks.  However nbl_lock_conflict
+	 * takes a zero-byte length as lock to EOF, so we must
+	 * special case that here.
+	 */
+	if (uio->uio_resid > 0) {
+		ct = smb_ct;
+		if (ofile != NULL)
+			ct.cc_pid = ofile->f_uniqid;
+		rc = nbl_lock_conflict(vp, NBL_WRITE, uio->uio_loffset,
+		    uio->uio_resid, svmand, &ct);
+		if (rc != 0) {
+			smb_node_end_crit(snode);
+			return (ERANGE);
+		}
 	}
 
 	rc = smb_vop_write(vp, uio, ioflag, lcount, cr);
@@ -1472,8 +1609,9 @@ smb_fsop_write(
 	 * behavior by re-setting the mtime after writes on a
 	 * handle where the mtime has been set.
 	 */
-	if (of->f_pending_attr.sa_mask & SMB_AT_MTIME) {
-		bcopy(&of->f_pending_attr, &attr, sizeof (attr));
+	if (ofile != NULL &&
+	    (ofile->f_pending_attr.sa_mask & SMB_AT_MTIME) != 0) {
+		bcopy(&ofile->f_pending_attr, &attr, sizeof (attr));
 		attr.sa_mask = SMB_AT_MTIME;
 		(void) smb_vop_setattr(vp, u_vp, &attr, 0, kcr);
 	}
@@ -1481,6 +1619,30 @@ smb_fsop_write(
 	smb_node_end_crit(snode);
 
 	return (rc);
+}
+
+/*
+ * Find the next allocated range starting at or after
+ * the offset (*datap), returning the start/end of
+ * that range in (*datap, *holep)
+ */
+int
+smb_fsop_next_alloc_range(
+    cred_t *cr,
+    smb_node_t *node,
+    off64_t *datap,
+    off64_t *holep)
+{
+	int err;
+
+	err = smb_vop_ioctl(node->vp, _FIO_SEEK_DATA, datap, cr);
+	if (err != 0)
+		return (err);
+
+	*holep = *datap;
+	err = smb_vop_ioctl(node->vp, _FIO_SEEK_HOLE, holep, cr);
+
+	return (err);
 }
 
 /*
@@ -1515,6 +1677,9 @@ smb_fsop_statfs(
  * check is performed on the named stream in case it has been
  * quarantined.  kcred is used to avoid issues with the permissions
  * set on the extended attribute file representing the named stream.
+ *
+ * Note that some stream "types" are "restricted" and only
+ * internal callers (cr == kcred) can access those.
  */
 int
 smb_fsop_access(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
@@ -1532,10 +1697,6 @@ smb_fsop_access(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	ASSERT(snode->n_magic == SMB_NODE_MAGIC);
 	ASSERT(snode->n_state != SMB_NODE_STATE_DESTROYING);
 
-	/* Requests for no access should be denied. */
-	if (faccess == 0)
-		return (NT_STATUS_ACCESS_DENIED);
-
 	if (SMB_TREE_IS_READONLY(sr)) {
 		if (faccess & (FILE_WRITE_DATA|FILE_APPEND_DATA|
 		    FILE_WRITE_EA|FILE_DELETE_CHILD|FILE_WRITE_ATTRIBUTES|
@@ -1549,8 +1710,13 @@ smb_fsop_access(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 
 	unnamed_node = SMB_IS_STREAM(snode);
 	if (unnamed_node) {
+		cred_t *kcr = zone_kcred();
+
 		ASSERT(unnamed_node->n_magic == SMB_NODE_MAGIC);
 		ASSERT(unnamed_node->n_state != SMB_NODE_STATE_DESTROYING);
+
+		if (cr != kcr && smb_strname_restricted(snode->od_name))
+			return (NT_STATUS_ACCESS_DENIED);
 
 		/*
 		 * Perform VREAD access check on the named stream in case it
@@ -1559,7 +1725,7 @@ smb_fsop_access(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 		 */
 		if (faccess & (FILE_READ_DATA | FILE_EXECUTE)) {
 			error = smb_vop_access(snode->vp, VREAD,
-			    0, NULL, zone_kcred());
+			    0, NULL, kcr);
 			if (error)
 				return (NT_STATUS_ACCESS_DENIED);
 		}
@@ -1577,10 +1743,7 @@ smb_fsop_access(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 		 * it's not part of DACL. It's only granted via proper
 		 * privileges.
 		 */
-		if ((sr->uid_user->u_privileges &
-		    (SMB_USER_PRIV_BACKUP |
-		    SMB_USER_PRIV_RESTORE |
-		    SMB_USER_PRIV_SECURITY)) == 0)
+		if (!smb_user_has_security_priv(sr->uid_user, cr))
 			return (NT_STATUS_PRIVILEGE_NOT_HELD);
 
 		faccess &= ~ACCESS_SYSTEM_SECURITY;
@@ -1622,8 +1785,12 @@ smb_fsop_access(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 /*
  * smb_fsop_lookup_name()
  *
+ * Lookup both the file and stream specified in 'name'.
  * If name indicates that the file is a stream file, perform
  * stream specific lookup, otherwise call smb_fsop_lookup.
+ *
+ * On success, returns the found node in *ret_snode. This will be either a named
+ * or unnamed stream node, depending on the name specified.
  *
  * Return an error if the looked-up file is in outside the tree.
  * (Required when invoked from open path.)
@@ -1646,18 +1813,64 @@ smb_fsop_lookup_name(
     char	*name,
     smb_node_t	**ret_snode)
 {
-	smb_node_t	*fnode;
-	vnode_t		*xattrdirvp;
-	vnode_t		*vp;
-	char		*od_name;
+	char *sname = NULL;
+	int rc;
+	smb_node_t *tmp_node;
+
+	ASSERT(ret_snode != NULL);
+
+	rc = smb_fsop_lookup_file(sr, cr, flags, root_node, dnode, name,
+	    &sname, ret_snode);
+
+	if (rc != 0 || sname == NULL)
+		return (rc);
+
+	tmp_node = *ret_snode;
+	rc = smb_fsop_lookup_stream(sr, cr, flags, root_node, tmp_node, sname,
+	    ret_snode);
+	kmem_free(sname, MAXNAMELEN);
+	smb_node_release(tmp_node);
+
+	return (rc);
+}
+
+/*
+ * smb_fsop_lookup_file()
+ *
+ * Look up of the file portion of 'name'. If a Stream is specified,
+ * return the stream name in 'sname', which this allocates.
+ * The caller must free 'sname'.
+ *
+ * Return an error if the looked-up file is outside the tree.
+ * (Required when invoked from open path.)
+ *
+ * Case sensitivity flags (SMB_IGNORE_CASE, SMB_CASE_SENSITIVE):
+ * if SMB_CASE_SENSITIVE is set, the SMB_IGNORE_CASE flag will NOT be set
+ * based on the tree's case sensitivity. However, if the SMB_IGNORE_CASE
+ * flag is set in the flags value passed as a parameter, a case insensitive
+ * lookup WILL be done (regardless of whether SMB_CASE_SENSITIVE is set
+ * or not).
+ */
+
+int
+smb_fsop_lookup_file(
+    smb_request_t *sr,
+    cred_t	*cr,
+    int		flags,
+    smb_node_t	*root_node,
+    smb_node_t	*dnode,
+    char	*name,
+    char	**sname,
+    smb_node_t	**ret_snode)
+{
 	char		*fname;
-	char		*sname;
 	int		rc;
 
 	ASSERT(cr);
 	ASSERT(dnode);
 	ASSERT(dnode->n_magic == SMB_NODE_MAGIC);
 	ASSERT(dnode->n_state != SMB_NODE_STATE_DESTROYING);
+	ASSERT(ret_snode != NULL);
 
 	/*
 	 * The following check is required for streams processing, below
@@ -1668,11 +1881,11 @@ smb_fsop_lookup_name(
 			flags |= SMB_IGNORE_CASE;
 	}
 
-	fname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
-	sname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
-
+	*sname = NULL;
 	if (smb_is_stream_name(name)) {
-		smb_stream_parse_name(name, fname, sname);
+		*sname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
+		fname = kmem_alloc(MAXNAMELEN, KM_SLEEP);
+		smb_stream_parse_name(name, fname, *sname);
 
 		/*
 		 * Look up the unnamed stream (i.e. fname).
@@ -1680,49 +1893,8 @@ smb_fsop_lookup_name(
 		 * as well as any link target.
 		 */
 		rc = smb_fsop_lookup(sr, cr, flags, root_node, dnode,
-		    fname, &fnode);
-
-		if (rc != 0) {
-			kmem_free(fname, MAXNAMELEN);
-			kmem_free(sname, MAXNAMELEN);
-			return (rc);
-		}
-
-		od_name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
-
-		/*
-		 * od_name is the on-disk name of the stream, except
-		 * without the prepended stream prefix (SMB_STREAM_PREFIX)
-		 */
-
-		/*
-		 * XXX
-		 * What permissions NTFS requires for stream lookup if any?
-		 */
-		rc = smb_vop_stream_lookup(fnode->vp, sname, &vp, od_name,
-		    &xattrdirvp, flags, root_node->vp, cr);
-
-		if (rc != 0) {
-			smb_node_release(fnode);
-			kmem_free(fname, MAXNAMELEN);
-			kmem_free(sname, MAXNAMELEN);
-			kmem_free(od_name, MAXNAMELEN);
-			return (rc);
-		}
-
-		*ret_snode = smb_stream_node_lookup(sr, cr, fnode, xattrdirvp,
-		    vp, od_name);
-
-		kmem_free(od_name, MAXNAMELEN);
-		smb_node_release(fnode);
-		VN_RELE(xattrdirvp);
-		VN_RELE(vp);
-
-		if (*ret_snode == NULL) {
-			kmem_free(fname, MAXNAMELEN);
-			kmem_free(sname, MAXNAMELEN);
-			return (ENOMEM);
-		}
+		    fname, ret_snode);
+		kmem_free(fname, MAXNAMELEN);
 	} else {
 		rc = smb_fsop_lookup(sr, cr, flags, root_node, dnode, name,
 		    ret_snode);
@@ -1737,8 +1909,66 @@ smb_fsop_lookup_name(
 		}
 	}
 
-	kmem_free(fname, MAXNAMELEN);
-	kmem_free(sname, MAXNAMELEN);
+	if (rc != 0 && *sname != NULL) {
+		kmem_free(*sname, MAXNAMELEN);
+		*sname = NULL;
+	}
+	return (rc);
+}
+
+/*
+ * smb_fsop_lookup_stream
+ *
+ * The file exists, see if the stream exists.
+ */
+int
+smb_fsop_lookup_stream(
+    smb_request_t *sr,
+    cred_t *cr,
+    int flags,
+    smb_node_t *root_node,
+    smb_node_t *fnode,
+    char *sname,
+    smb_node_t **ret_snode)
+{
+	char		*od_name;
+	vnode_t		*xattrdirvp;
+	vnode_t		*vp;
+	int rc;
+
+	/*
+	 * The following check is required for streams processing, below
+	 */
+
+	if (!(flags & SMB_CASE_SENSITIVE)) {
+		if (SMB_TREE_IS_CASEINSENSITIVE(sr))
+			flags |= SMB_IGNORE_CASE;
+	}
+
+	od_name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
+
+	/*
+	 * od_name is the on-disk name of the stream, except
+	 * without the prepended stream prefix (SMB_STREAM_PREFIX)
+	 */
+
+	rc = smb_vop_stream_lookup(fnode->vp, sname, &vp, od_name,
+	    &xattrdirvp, flags, root_node->vp, cr);
+
+	if (rc != 0) {
+		kmem_free(od_name, MAXNAMELEN);
+		return (rc);
+	}
+
+	*ret_snode = smb_stream_node_lookup(sr, cr, fnode, xattrdirvp,
+	    vp, od_name);
+
+	kmem_free(od_name, MAXNAMELEN);
+	VN_RELE(xattrdirvp);
+	VN_RELE(vp);
+
+	if (*ret_snode == NULL)
+		return (ENOMEM);
 
 	return (rc);
 }
@@ -1811,6 +2041,15 @@ smb_fsop_lookup(
 	if (SMB_TREE_SUPPORTS_ABE(sr))
 		flags |= SMB_ABE;
 
+	/*
+	 * Can have "" or "." when opening named streams on a directory.
+	 */
+	if (name[0] == '\0' || (name[0] == '.' && name[1] == '\0')) {
+		smb_node_ref(dnode);
+		*ret_snode = dnode;
+		return (0);
+	}
+
 	od_name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 
 	rc = smb_vop_lookup(dnode->vp, name, &vp, od_name, flags,
@@ -1857,7 +2096,7 @@ smb_fsop_lookup(
 	if ((flags & SMB_FOLLOW_LINKS) && (vp->v_type == VLNK) &&
 	    ((attr.sa_dosattr & FILE_ATTRIBUTE_REPARSE_POINT) == 0)) {
 		rc = smb_pathname(sr, od_name, FOLLOW, root_node, dnode,
-		    &lnk_dnode, &lnk_target_node, cr);
+		    &lnk_dnode, &lnk_target_node, cr, NULL);
 
 		if (rc != 0) {
 			/*
@@ -1966,9 +2205,12 @@ smb_fsop_aclread(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	int flags = 0;
 	int access = 0;
 	acl_t *acl;
-	smb_node_t *unnamed_node;
 
 	ASSERT(cr);
+
+	/* Can't query security on named streams */
+	if (SMB_IS_STREAM(snode) != NULL)
+		return (EINVAL);
 
 	if (SMB_TREE_HAS_ACCESS(sr, ACE_READ_ACL) == 0)
 		return (EACCES);
@@ -1986,16 +2228,6 @@ smb_fsop_aclread(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 		}
 	}
 
-	unnamed_node = SMB_IS_STREAM(snode);
-	if (unnamed_node) {
-		ASSERT(unnamed_node->n_magic == SMB_NODE_MAGIC);
-		ASSERT(unnamed_node->n_state != SMB_NODE_STATE_DESTROYING);
-		/*
-		 * Streams don't have ACL, any read ACL attempt on a stream
-		 * should be performed on the unnamed stream.
-		 */
-		snode = unnamed_node;
-	}
 
 	if (smb_tree_has_feature(sr->tid_tree, SMB_TREE_ACEMASKONACCESS))
 		flags = ATTR_NOACLCHECK;
@@ -2032,7 +2264,6 @@ smb_fsop_aclwrite(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	int flags = 0;
 	int access = 0;
 	acl_t *acl, *dacl, *sacl;
-	smb_node_t *unnamed_node;
 
 	ASSERT(cr);
 
@@ -2040,6 +2271,10 @@ smb_fsop_aclwrite(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	ASSERT(sr->tid_tree);
 	if (SMB_TREE_IS_READONLY(sr))
 		return (EROFS);
+
+	/* Can't set security on named streams */
+	if (SMB_IS_STREAM(snode) != NULL)
+		return (EINVAL);
 
 	if (SMB_TREE_HAS_ACCESS(sr, ACE_WRITE_ACL) == 0)
 		return (EACCES);
@@ -2066,17 +2301,6 @@ smb_fsop_aclwrite(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 		break;
 	default:
 		return (EINVAL);
-	}
-
-	unnamed_node = SMB_IS_STREAM(snode);
-	if (unnamed_node) {
-		ASSERT(unnamed_node->n_magic == SMB_NODE_MAGIC);
-		ASSERT(unnamed_node->n_state != SMB_NODE_STATE_DESTROYING);
-		/*
-		 * Streams don't have ACL, any write ACL attempt on a stream
-		 * should be performed on the unnamed stream.
-		 */
-		snode = unnamed_node;
 	}
 
 	dacl = fs_sd->sd_zdacl;
@@ -2132,6 +2356,10 @@ smb_fsop_sdread(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 
 	ASSERT(cr);
 	ASSERT(fs_sd);
+
+	/* Can't query security on named streams */
+	if (SMB_IS_STREAM(snode) != NULL)
+		return (EINVAL);
 
 	/*
 	 * File's uid/gid is fetched in two cases:
@@ -2279,6 +2507,8 @@ smb_fsop_sdmerge(smb_request_t *sr, smb_node_t *snode, smb_fssd_t *fs_sd)
  * owner has been specified. Callers should translate this to
  * STATUS_INVALID_OWNER which is not the normal mapping for EPERM
  * in upper layers, so EPERM is mapped to EBADE.
+ *
+ * If 'overwrite' is non-zero, then the existing ACL is ignored.
  */
 int
 smb_fsop_sdwrite(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
@@ -2297,6 +2527,10 @@ smb_fsop_sdwrite(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	ASSERT(sr->tid_tree);
 	if (SMB_TREE_IS_READONLY(sr))
 		return (EROFS);
+
+	/* Can't set security on named streams */
+	if (SMB_IS_STREAM(snode) != NULL)
+		return (EINVAL);
 
 	bzero(&set_attr, sizeof (smb_attr_t));
 
@@ -2340,14 +2574,13 @@ smb_fsop_sdwrite(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	}
 
 	if (fs_sd->sd_secinfo & SMB_ACL_SECINFO) {
-		if (overwrite == 0) {
+		if (overwrite == 0)
 			error = smb_fsop_sdmerge(sr, snode, fs_sd);
-			if (error)
-				return (error);
-		}
 
-		error = smb_fsop_aclwrite(sr, cr, snode, fs_sd);
-		if (error) {
+		if (error == 0)
+			error = smb_fsop_aclwrite(sr, cr, snode, fs_sd);
+
+		if (error != 0) {
 			/*
 			 * Revert uid/gid changes if required.
 			 */
@@ -2395,39 +2628,46 @@ smb_fsop_sdinherit(smb_request_t *sr, smb_node_t *dnode, smb_fssd_t *fs_sd)
 	acl_t *sacl = NULL;
 	int is_dir;
 	int error;
+	uint32_t secinfo;
+	smb_fssd_t pfs_sd;
 
 	ASSERT(fs_sd);
 
-	if (sr->tid_tree->t_acltype != ACE_T) {
-		/*
-		 * No forced inheritance for non-ZFS filesystems.
-		 */
-		fs_sd->sd_secinfo = 0;
-		return (0);
-	}
+	secinfo = fs_sd->sd_secinfo;
 
+	/* Anything to do? */
+	if ((secinfo & SMB_ACL_SECINFO) == SMB_ACL_SECINFO)
+		return (0);
+
+	/*
+	 * No forced inheritance for non-ZFS filesystems.
+	 */
+	if (sr->tid_tree->t_acltype != ACE_T)
+		return (0);
+
+	smb_fssd_init(&pfs_sd, SMB_ACL_SECINFO, fs_sd->sd_flags);
 
 	/* Fetch parent directory's ACL */
-	error = smb_fsop_sdread(sr, zone_kcred(), dnode, fs_sd);
+	error = smb_fsop_sdread(sr, zone_kcred(), dnode, &pfs_sd);
 	if (error) {
 		return (error);
 	}
 
 	is_dir = (fs_sd->sd_flags & SMB_FSSD_FLAGS_DIR);
-	dacl = smb_fsacl_inherit(fs_sd->sd_zdacl, is_dir, SMB_DACL_SECINFO,
-	    sr->user_cr);
-	sacl = smb_fsacl_inherit(fs_sd->sd_zsacl, is_dir, SMB_SACL_SECINFO,
-	    sr->user_cr);
+	if ((secinfo & SMB_DACL_SECINFO) == 0) {
+		dacl = smb_fsacl_inherit(pfs_sd.sd_zdacl, is_dir,
+		    SMB_DACL_SECINFO, sr->user_cr);
+		fs_sd->sd_zdacl = dacl;
+	}
 
-	if (sacl == NULL)
-		fs_sd->sd_secinfo &= ~SMB_SACL_SECINFO;
+	if ((secinfo & SMB_SACL_SECINFO) == 0) {
+		sacl = smb_fsacl_inherit(pfs_sd.sd_zsacl, is_dir,
+		    SMB_SACL_SECINFO, sr->user_cr);
+		fs_sd->sd_zsacl = sacl;
+	}
 
-	smb_fsacl_free(fs_sd->sd_zdacl);
-	smb_fsacl_free(fs_sd->sd_zsacl);
-
-	fs_sd->sd_zdacl = dacl;
-	fs_sd->sd_zsacl = sacl;
-
+	smb_fsacl_free(pfs_sd.sd_zdacl);
+	smb_fsacl_free(pfs_sd.sd_zsacl);
 	return (0);
 }
 #endif	/* _KERNEL */
@@ -2488,6 +2728,15 @@ smb_fsop_eaccess(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	if (access & VWRITE)
 		*eaccess |= FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES |
 		    FILE_WRITE_EA | FILE_APPEND_DATA | FILE_DELETE_CHILD;
+
+	if (access & (VREAD | VWRITE))
+		*eaccess |= SYNCHRONIZE;
+
+#ifdef	_FAKE_KERNEL
+	/* Should be: if (we are the owner)... */
+	if (access & VWRITE)
+		*eaccess |= DELETE | WRITE_DAC | WRITE_OWNER;
+#endif
 }
 
 /*
@@ -2568,6 +2817,14 @@ smb_fsop_frlock(smb_node_t *node, smb_lock_t *lock, boolean_t unlock,
 	 *    bytes. Interestingly if the same lock (same offset and length) is
 	 *    resubmitted Windows will consider that there is an overlap and
 	 *    the granting rules will then apply.
+	 *
+	 * 3) The SMB-level process IDs (smb_pid) are not passed down to the
+	 *    POSIX level in l_pid because (a) the rules about lock PIDs are
+	 *    different in SMB, and (b) we're putting our ofile f_uniqid in
+	 *    the POSIX l_pid field to segregate locks per SMB ofile.
+	 *    (We're also using a "remote" system ID in l_sysid.)
+	 *    All SMB locking PIDs are handled at the SMB level and
+	 *    not exposed in POSIX locking.
 	 */
 	if ((lock->l_length == 0) ||
 	    ((lock->l_start + lock->l_length - 1) < lock->l_start))

@@ -23,6 +23,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright (c) 2017 by Delphix. All rights reserved.
  */
 
 #if defined(_KERNEL) || defined(_FAKE_KERNEL)
@@ -49,6 +50,8 @@
  */
 static const smb_codepage_t *current_codepage = usascii_codepage;
 static boolean_t is_unicode = B_FALSE;
+
+static smb_codepage_t *unicode_codepage = NULL;
 
 static smb_codepage_t *smb_unicode_init(void);
 
@@ -115,17 +118,28 @@ strcanon(char *buf, const char *class)
 void
 smb_codepage_init(void)
 {
-	const smb_codepage_t *cp;
+	smb_codepage_t *cp;
 
 	if (is_unicode)
 		return;
 
 	if ((cp = smb_unicode_init()) != NULL) {
 		current_codepage = cp;
+		unicode_codepage = cp;
 		is_unicode = B_TRUE;
 	} else {
 		current_codepage = usascii_codepage;
 		is_unicode = B_FALSE;
+	}
+}
+
+void
+smb_codepage_fini(void)
+{
+	if (unicode_codepage != NULL) {
+		MEM_FREE("unicode", unicode_codepage);
+		unicode_codepage = NULL;
+		current_codepage = NULL;
 	}
 }
 
@@ -160,8 +174,8 @@ smb_islower(int c)
  * If the specified character is lowercase, the uppercase value will
  * be returned. Otherwise the original value will be returned.
  */
-int
-smb_toupper(int c)
+uint32_t
+smb_toupper(uint32_t c)
 {
 	uint16_t mask = is_unicode ? 0xffff : 0xff;
 
@@ -173,8 +187,8 @@ smb_toupper(int c)
  * If the specified character is uppercase, the lowercase value will
  * be returned. Otherwise the original value will be returned.
  */
-int
-smb_tolower(int c)
+uint32_t
+smb_tolower(uint32_t c)
 {
 	uint16_t mask = is_unicode ? 0xffff : 0xff;
 
@@ -190,7 +204,7 @@ smb_tolower(int c)
 char *
 smb_strupr(char *s)
 {
-	smb_wchar_t c;
+	uint32_t c;
 	char *p = s;
 
 	while (*p) {
@@ -221,7 +235,7 @@ smb_strupr(char *s)
 char *
 smb_strlwr(char *s)
 {
-	smb_wchar_t c;
+	uint32_t c;
 	char *p = s;
 
 	while (*p) {
@@ -250,7 +264,7 @@ smb_strlwr(char *s)
 int
 smb_isstrlwr(const char *s)
 {
-	smb_wchar_t c;
+	uint32_t c;
 	int n;
 	const char *p = s;
 
@@ -281,7 +295,7 @@ smb_isstrlwr(const char *s)
 int
 smb_isstrupr(const char *s)
 {
-	smb_wchar_t c;
+	uint32_t c;
 	int n;
 	const char *p = s;
 
@@ -426,7 +440,7 @@ smb_unicode_init(void)
  * unc_server	server or domain name with no leading/trailing '\'
  * unc_share	share name with no leading/trailing '\'
  * unc_path	relative path to the share with no leading/trailing '\'
- * 		it is valid for unc_path to be NULL.
+ *		it is valid for unc_path to be NULL.
  *
  * Upon successful return of this function, smb_unc_free()
  * MUST be called when returned 'unc' is no longer needed.

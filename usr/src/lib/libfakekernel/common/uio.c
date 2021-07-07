@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #include <sys/types.h>
@@ -42,10 +42,10 @@ uiomove(void *p, size_t n, enum uio_rw rw, struct uio *uio)
 		}
 		switch (uio->uio_segflg) {
 
-		case UIO_USERSPACE:
 		case UIO_USERISPACE:
 			return (EINVAL);
 
+		case UIO_USERSPACE:
 		case UIO_SYSSPACE:
 			if (rw == UIO_READ)
 				bcopy(p, iov->iov_base, cnt);
@@ -61,4 +61,29 @@ uiomove(void *p, size_t n, enum uio_rw rw, struct uio *uio)
 		n -= cnt;
 	}
 	return (0);
+}
+
+/*
+ * Drop the next n chars out of *uiop.
+ */
+void
+uioskip(uio_t *uiop, size_t n)
+{
+	if (n > uiop->uio_resid)
+		return;
+	while (n != 0) {
+		iovec_t	*iovp = uiop->uio_iov;
+		size_t	niovb = MIN(iovp->iov_len, n);
+
+		if (niovb == 0) {
+			uiop->uio_iov++;
+			uiop->uio_iovcnt--;
+			continue;
+		}
+		iovp->iov_base += niovb;
+		uiop->uio_loffset += niovb;
+		iovp->iov_len -= niovb;
+		uiop->uio_resid -= niovb;
+		n -= niovb;
+	}
 }

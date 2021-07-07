@@ -18,27 +18,34 @@
  *
  * CDDL HEADER END
  */
-/*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
 
+/*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
+/*	  All Rights Reserved	*/
 
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2016 Nexenta Systems, Inc.
  */
 
 #ifndef _SYS_SYSTM_H
 #define	_SYS_SYSTM_H
 
+#if defined(_STANDALONE)
+#include <sys/cdefs.h>
+#include <string.h>
+#else
 #include <sys/types.h>
 #include <sys/t_lock.h>
 #include <sys/proc.h>
 #include <sys/dditypes.h>
+#endif
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
+#if !defined(_STANDALONE)
 /*
  * The pc_t is the type of the kernel's program counter.  In general, a
  * pc_t is a uintptr_t -- except for a sparcv9 kernel, in which case all
@@ -87,7 +94,6 @@ extern pgcnt_t	freemem;	/* Current free memory.			*/
 
 extern dev_t	rootdev;	/* device of the root */
 extern struct vnode *rootvp;	/* vnode of root device */
-extern boolean_t root_is_svm;		/* root is a mirrored device flag */
 extern boolean_t root_is_ramdisk;	/* root is boot_archive ramdisk */
 extern uint32_t  ramdisk_size;		/* (KB) set only for sparc netboots */
 extern char *volatile panicstr;	/* panic string pointer */
@@ -321,11 +327,11 @@ extern void param_check(void);
 /*
  * Structure of the system-entry table.
  *
- * 	Changes to struct sysent should maintain binary compatibility with
+ *	Changes to struct sysent should maintain binary compatibility with
  *	loadable system calls, although the interface is currently private.
  *
  *	This means it should only be expanded on the end, and flag values
- * 	should not be reused.
+ *	should not be reused.
  *
  *	It is desirable to keep the size of this struct a power of 2 for quick
  *	indexing.
@@ -349,14 +355,14 @@ extern struct sysent	sysent32[];
 
 extern struct sysent	nosys_ent;	/* entry for invalid system call */
 
-#define	NSYSCALL 	256		/* number of system calls */
+#define	NSYSCALL	256		/* number of system calls */
 
 #define	LOADABLE_SYSCALL(s)	(s->sy_flags & SE_LOADABLE)
 #define	LOADED_SYSCALL(s)	(s->sy_flags & SE_LOADED)
 
 /*
  * sy_flags values
- * 	Values 1, 2, and 4 were used previously for SETJUMP, ASYNC, and IOSYS.
+ *	Values 1, 2, and 4 were used previously for SETJUMP, ASYNC, and IOSYS.
  */
 #define	SE_32RVAL1	0x0		/* handler returns int32_t in rval1 */
 #define	SE_32RVAL2	0x1		/* handler returns int32_t in rval2 */
@@ -402,6 +408,7 @@ extern uint_t set_errno(uint_t error);
 extern int64_t syscall_ap(void);
 extern int64_t loadable_syscall(long, long, long, long, long, long, long, long);
 extern int64_t nosys(void);
+extern int nosys32(void);
 
 extern void swtch(void);
 
@@ -508,6 +515,7 @@ extern	int	__lintzero;	/* for spoofing lint */
 #define	__lintzero 0
 #endif	/* __lint */
 #endif /* _KERNEL || _BOOT */
+#endif /* !_STANDALONE */
 
 #ifdef	__cplusplus
 }

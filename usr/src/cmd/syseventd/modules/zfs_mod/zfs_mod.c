@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2012 by Delphix. All rights reserved.
- * Copyright 2015 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2016 Nexenta Systems, Inc. All rights reserved.
  */
 
 /*
@@ -155,6 +155,8 @@ zfs_process_add(zpool_handle_t *zhp, nvlist_t *vdev, boolean_t isdisk)
 	uint64_t offline = 0ULL;
 	char *physpath = NULL;
 	char rawpath[PATH_MAX], fullpath[PATH_MAX];
+	zpool_boot_label_t boot_type;
+	uint64_t boot_size;
 	size_t len;
 
 	if (nvlist_lookup_string(vdev, ZPOOL_CONFIG_PATH, &path) != 0)
@@ -209,7 +211,8 @@ zfs_process_add(zpool_handle_t *zhp, nvlist_t *vdev, boolean_t isdisk)
 		 * trigger a ZFS fault for the device (and any hot spare
 		 * replacement).
 		 */
-		if (strncmp(path, "/dev/dsk/", 9) != 0) {
+		if (strncmp(path, ZFS_DISK_ROOTD,
+		    strlen(ZFS_DISK_ROOTD)) != 0) {
 			(void) zpool_vdev_online(zhp, fullpath,
 			    ZFS_ONLINE_FORCEFAULT, &newstate);
 			return;
@@ -219,7 +222,14 @@ zfs_process_add(zpool_handle_t *zhp, nvlist_t *vdev, boolean_t isdisk)
 		len = strlen(rawpath);
 		rawpath[len - 2] = '\0';
 
-		if (zpool_label_disk(g_zfshdl, zhp, rawpath) != 0) {
+		if (zpool_is_bootable(zhp))
+			boot_type = ZPOOL_COPY_BOOT_LABEL;
+		else
+			boot_type = ZPOOL_NO_BOOT_LABEL;
+
+		boot_size = zpool_get_prop_int(zhp, ZPOOL_PROP_BOOTSIZE, NULL);
+		if (zpool_label_disk(g_zfshdl, zhp, rawpath,
+		    boot_type, boot_size, NULL) != 0) {
 			(void) zpool_vdev_online(zhp, fullpath,
 			    ZFS_ONLINE_FORCEFAULT, &newstate);
 			return;
@@ -821,6 +831,7 @@ slm_fini()
 {
 	unavailpool_t *pool;
 
+	(void) thr_join(g_zfs_tid, NULL, NULL);
 	if (g_tpool != NULL) {
 		tpool_wait(g_tpool);
 		tpool_destroy(g_tpool);
@@ -830,7 +841,6 @@ slm_fini()
 		zpool_close(pool->uap_zhp);
 		free(pool);
 	}
-	(void) thr_join(g_zfs_tid, NULL, NULL);
 	list_destroy(&g_pool_list);
 	libzfs_fini(g_zfshdl);
 }

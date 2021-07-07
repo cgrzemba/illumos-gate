@@ -23,6 +23,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
  */
 
 #include <stdio.h>
@@ -66,7 +67,8 @@ extern boolean_t newline_terminated;
 %token LOC_DEFAULT_DOMAIN LOC_NFSV4_DOMAIN
 %token LOC_IPF_CONFIG LOC_IPF_V6_CONFIG
 %token LOC_IPNAT_CONFIG LOC_IPPOOL_CONFIG LOC_IKE_CONFIG LOC_IPSECPOL_CONFIG
-%token WLAN_SSID WLAN_BSSID WLAN_KEYNAME WLAN_PRIORITY WLAN_DISABLED WLAN_EAP_USER WLAN_EAP_ANON WLAN_CA_CERT WLAN_PRIV WLAN_CLI_CERT
+%token WLAN_BSSIDS WLAN_PRIORITY WLAN_KEYNAME WLAN_KEYSLOT WLAN_SECURITY_MODE
+%token IP_PRIMARY IP_REQHOST
 
 %type <strval> TOKEN EQUAL OPTION
 %type <ival> resource1_type LOC NCP ENM WLAN
@@ -85,7 +87,8 @@ extern boolean_t newline_terminated;
     LOC_DEFAULT_DOMAIN LOC_NFSV4_DOMAIN
     LOC_IPF_CONFIG LOC_IPF_V6_CONFIG
     LOC_IPNAT_CONFIG LOC_IPPOOL_CONFIG LOC_IKE_CONFIG LOC_IPSECPOL_CONFIG
-    WLAN_SSID WLAN_BSSID WLAN_KEYNAME WLAN_PRIORITY WLAN_DISABLED WLAN_EAP_USER WLAN_EAP_ANON WLAN_CA_CERT WLAN_PRIV WLAN_CLI_CERT
+    WLAN_BSSIDS WLAN_PRIORITY WLAN_KEYNAME WLAN_KEYSLOT WLAN_SECURITY_MODE
+    IP_PRIMARY IP_REQHOST
 %type <cmd> command
 %type <cmd> cancel_command CANCEL
 %type <cmd> clear_command CLEAR
@@ -178,7 +181,7 @@ clear_command: CLEAR
 	{
 		properr($2);
 		YYERROR;
-	}
+	}		
 	|	CLEAR property_type
 	{
 		/* clear prop */
@@ -238,7 +241,7 @@ create_command: CREATE
 	}
 	|	CREATE resource2_type ncu_class_type TOKEN
 	{
-		/* create ncu ip/phys test */
+		/* create ncu ip/phys test */	  
 		if (($$ = alloc_cmd()) == NULL)
 			YYERROR;
 		cmd = $$;
@@ -268,7 +271,7 @@ create_command: CREATE
 	}
 	|	CREATE OPTION TOKEN resource2_type ncu_class_type TOKEN
 	{
-		/* create -t old ncu ip/phys test */
+		/* create -t old ncu ip/phys test */	  
 		if (($$ = alloc_cmd()) == NULL)
 			YYERROR;
 		cmd = $$;
@@ -534,7 +537,7 @@ get_command: GET
 	{
 		properr($2);
 		YYERROR;
-	}
+	}		
 	|	GET property_type
 	{
 		/* get prop */
@@ -617,7 +620,22 @@ list_command:	LIST
 		command_usage(CMD_LIST);
 		YYERROR;
 	}
+	|	LIST OPTION resource1_type
+	{
+		command_usage(CMD_LIST);
+		YYERROR;
+	}
 	|	LIST resource2_type
+	{
+		command_usage(CMD_LIST);
+		YYERROR;
+	}
+	|	LIST OPTION resource2_type
+	{
+		command_usage(CMD_LIST);
+		YYERROR;
+	}
+	|	LIST OPTION resource2_type ncu_class_type
 	{
 		command_usage(CMD_LIST);
 		YYERROR;
@@ -739,6 +757,11 @@ select_command:	SELECT
 		YYERROR;
 	}
 	|	SELECT resource2_type
+	{
+		command_usage(CMD_SELECT);
+		YYERROR;
+	}
+	|	SELECT resource2_type ncu_class_type
 	{
 		command_usage(CMD_SELECT);
 		YYERROR;
@@ -895,14 +918,12 @@ property_type:	UNKNOWN			{ $$ = PT_UNKNOWN; }
 	|	LOC_IPPOOL_CONFIG	{ $$ = PT_LOC_IPPOOL_CONFIG; }
 	|	LOC_IKE_CONFIG		{ $$ = PT_LOC_IKE_CONFIG; }
 	|	LOC_IPSECPOL_CONFIG	{ $$ = PT_LOC_IPSECPOL_CONFIG; }
-	|	WLAN_SSID		{ $$ = PT_WLAN_SSID; }
-	|	WLAN_BSSID		{ $$ = PT_WLAN_BSSID; }
-	|	WLAN_KEYNAME		{ $$ = PT_WLAN_KEYNAME; }
+	|	WLAN_BSSIDS		{ $$ = PT_WLAN_BSSIDS; }
 	|	WLAN_PRIORITY		{ $$ = PT_WLAN_PRIORITY; }
-	|	WLAN_DISABLED		{ $$ = PT_WLAN_DISABLED; }
-	|	WLAN_EAP_USER		{ $$ = PT_WLAN_EAP_USER; }
-	|	WLAN_EAP_ANON		{ $$ = PT_WLAN_EAP_ANON; }
-	|	WLAN_CA_CERT		{ $$ = PT_WLAN_CA_CERT; }
-	|	WLAN_PRIV		{ $$ = PT_WLAN_PRIV; }
-	|	WLAN_CLI_CERT		{ $$ = PT_WLAN_CLI_CERT; }
+	|	WLAN_KEYNAME		{ $$ = PT_WLAN_KEYNAME; }
+	|	WLAN_KEYSLOT		{ $$ = PT_WLAN_KEYSLOT; }
+	|	WLAN_SECURITY_MODE	{ $$ = PT_WLAN_SECURITY_MODE; }
+	|	IP_PRIMARY		{ $$ = PT_IP_PRIMARY; }
+	|	IP_REQHOST		{ $$ = PT_IP_REQHOST; }
+
 %%

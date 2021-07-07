@@ -130,7 +130,7 @@ main(int argc, char *argv[])
 
 	errno = 0;
 	port = strtol(argv[2], &eptr, 10);
-	if (errno != 0 || *eptr != '\0') {
+	if (errno != 0 || *eptr != '\e0') {
 		fprintf(stderr, "failed to parse port %s\\n", argv[2]);
 		return (1);
 	}
@@ -189,7 +189,7 @@ main(int argc, char *argv[])
 		}
 		if (err != 0) {
 			/* Asynch connect failed */
-			fprintf(stderr, "asnchronous connect: %s\\n",
+			fprintf(stderr, "asynchronous connect: %s\\n",
 			    strerror(err));
 			(void) close(sock);
 			(void) close(eport);

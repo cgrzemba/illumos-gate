@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
  */
 
 /*
@@ -35,6 +35,7 @@
 #include <sys/filio.h>
 #include <smbsrv/smb_kproto.h>
 #include <smbsrv/smb_xdr.h>
+#include <smb/winioctl.h>
 
 /*
  * Allocate a new opipe and return it, or NULL, in which case
@@ -91,6 +92,30 @@ smb_opipe_dealloc(smb_opipe_t *opipe)
 	mutex_destroy(&opipe->p_mutex);
 
 	kmem_cache_free(smb_cache_opipe, opipe);
+}
+
+/*
+ * Unblock a request that might be blocked reading some
+ * pipe (AF_UNIX socket).  We don't have an easy way to
+ * interrupt just the thread servicing this request, so
+ * we shutdown(3socket) the socket, waking all readers.
+ * That's a bit heavy-handed, making the socket unusable
+ * after this, so we do this only when disconnecting a
+ * session (i.e. stopping the SMB service), and not when
+ * handling an SMB2_cancel or SMB_nt_cancel request.
+ */
+static void
+smb_opipe_cancel(smb_request_t *sr)
+{
+	ksocket_t so;
+
+	switch (sr->session->s_state) {
+	case SMB_SESSION_STATE_DISCONNECTED:
+	case SMB_SESSION_STATE_TERMINATED:
+		if ((so = sr->cancel_arg2) != NULL)
+			(void) ksocket_shutdown(so, SHUT_RDWR, sr->user_cr);
+		break;
+	}
 }
 
 /*
@@ -164,31 +189,66 @@ smb_opipe_send_userinfo(smb_request_t *sr, smb_opipe_t *opipe,
 	if (!smb_netuserinfo_xdr(&xdrs, &nui))
 		goto out;
 
-	/*
-	 * If we fail sending the netuserinfo or recv'ing the
-	 * status reponse, we have probably run into the limit
-	 * on the number of open pipes.  That's this status:
-	 */
-	errp->status = NT_STATUS_PIPE_NOT_AVAILABLE;
+	mutex_enter(&sr->sr_mutex);
+	if (sr->sr_state != SMB_REQ_STATE_ACTIVE) {
+		mutex_exit(&sr->sr_mutex);
+		errp->status = NT_STATUS_CANCELLED;
+		goto out;
+	}
+	sr->sr_state = SMB_REQ_STATE_WAITING_PIPE;
+	sr->cancel_method = smb_opipe_cancel;
+	sr->cancel_arg2 = opipe->p_socket;
+	mutex_exit(&sr->sr_mutex);
 
 	rc = ksocket_send(opipe->p_socket, buf, buflen, 0,
 	    &iocnt, sr->user_cr);
 	if (rc == 0 && iocnt != buflen)
 		rc = EIO;
-	if (rc != 0)
-		goto out;
+	if (rc == 0)
+		rc = ksocket_recv(opipe->p_socket, &status, sizeof (status),
+		    0, &iocnt, sr->user_cr);
+	if (rc == 0 && iocnt != sizeof (status))
+		rc = EIO;
 
-	rc = ksocket_recv(opipe->p_socket, &status, sizeof (status), 0,
-	    &iocnt, sr->user_cr);
-	if (rc != 0 || iocnt != sizeof (status))
-		goto out;
+	mutex_enter(&sr->sr_mutex);
+	sr->cancel_method = NULL;
+	sr->cancel_arg2 = NULL;
+	switch (sr->sr_state) {
+	case SMB_REQ_STATE_WAITING_PIPE:
+		sr->sr_state = SMB_REQ_STATE_ACTIVE;
+		break;
+	case SMB_REQ_STATE_CANCEL_PENDING:
+		sr->sr_state = SMB_REQ_STATE_CANCELLED;
+		rc = EINTR;
+		break;
+	default:
+		/* keep rc from above */
+		break;
+	}
+	mutex_exit(&sr->sr_mutex);
+
 
 	/*
 	 * Return the status we read from the pipe service,
 	 * normally NT_STATUS_SUCCESS, but could be something
 	 * else like NT_STATUS_ACCESS_DENIED.
 	 */
-	errp->status = status;
+	switch (rc) {
+	case 0:
+		errp->status = status;
+		break;
+	case EINTR:
+		errp->status = NT_STATUS_CANCELLED;
+		break;
+	/*
+	 * If we fail sending the netuserinfo or recv'ing the
+	 * status reponse, we have probably run into the limit
+	 * on the number of open pipes.  That's this status:
+	 */
+	default:
+		errp->status = NT_STATUS_PIPE_NOT_AVAILABLE;
+		break;
+	}
 
 out:
 	xdr_destroy(&xdrs);
@@ -206,10 +266,10 @@ out:
  * Returns 0 on success, Otherwise an NT status code.
  */
 int
-smb_opipe_open(smb_request_t *sr, uint32_t uniqid)
+smb_opipe_open(smb_request_t *sr, smb_ofile_t *ofile)
 {
 	smb_arg_open_t	*op = &sr->sr_open;
-	smb_ofile_t *ofile;
+	smb_attr_t *ap = &op->fqi.fq_fattr;
 	smb_opipe_t *opipe;
 	smb_error_t err;
 
@@ -229,30 +289,40 @@ smb_opipe_open(smb_request_t *sr, uint32_t uniqid)
 	}
 
 	/*
-	 * Note: If smb_ofile_open succeeds, the new ofile is
-	 * in the FID lists can can be used by I/O requests.
+	 * We might have blocked in smb_opipe_connect long enough so
+	 * a tree disconnect might have happened.  In that case, we
+	 * would be adding an ofile to a tree that's disconnecting,
+	 * which would interfere with tear-down.
 	 */
-	op->create_options = 0;
-	op->pipe = opipe;
-	ofile = smb_ofile_open(sr, NULL, op,
-	    SMB_FTYPE_MESG_PIPE, uniqid, &err);
-	op->pipe = NULL;
-	if (ofile == NULL) {
+	if (!smb_tree_is_connected(sr->tid_tree)) {
 		smb_opipe_dealloc(opipe);
-		return (err.status);
+		return (NT_STATUS_NETWORK_NAME_DELETED);
 	}
+
+	/*
+	 * Note: The new opipe is given to smb_ofile_open
+	 * via op->pipe
+	 */
+	op->pipe = opipe;
+	smb_ofile_open(sr, op, ofile);
+	op->pipe = NULL;
 
 	/* An "up" pointer, for debug. */
 	opipe->p_ofile = ofile;
 
-	op->dsize = 0x01000;
-	op->dattr = FILE_ATTRIBUTE_NORMAL;
+	/*
+	 * Caller expects attributes in op->fqi
+	 */
+	(void) smb_opipe_getattr(ofile, &op->fqi.fq_fattr);
+
+	op->dsize = 0;
+	op->dattr = ap->sa_dosattr;
+	op->fileid = ap->sa_vattr.va_nodeid;
 	op->ftype = SMB_FTYPE_MESG_PIPE;
-	op->action_taken = SMB_OACT_LOCK | SMB_OACT_OPENED; /* 0x8001 */
+	op->action_taken = SMB_OACT_OPLOCK | SMB_OACT_OPENED;
 	op->devstate = SMB_PIPE_READMODE_MESSAGE
 	    | SMB_PIPE_TYPE_MESSAGE
 	    | SMB_PIPE_UNLIMITED_INSTANCES; /* 0x05ff */
-	op->fileid = ofile->f_fid;
 
 	sr->smb_fid = ofile->f_fid;
 	sr->fid_ofile = ofile;
@@ -369,17 +439,45 @@ smb_opipe_read(smb_request_t *sr, struct uio *uio)
 	if (sock == NULL)
 		return (EBADF);
 
-	bzero(&msghdr, sizeof (msghdr));
-	msghdr.msg_iov = uio->uio_iov;
-	msghdr.msg_iovlen = uio->uio_iovcnt;
+	mutex_enter(&sr->sr_mutex);
+	if (sr->sr_state != SMB_REQ_STATE_ACTIVE) {
+		mutex_exit(&sr->sr_mutex);
+		rc = EINTR;
+		goto out;
+	}
+	sr->sr_state = SMB_REQ_STATE_WAITING_PIPE;
+	sr->cancel_method = smb_opipe_cancel;
+	sr->cancel_arg2 = sock;
+	mutex_exit(&sr->sr_mutex);
 
 	/*
 	 * This should block only if there's no data.
 	 * A single call to recvmsg does just that.
 	 * (Intentionaly no recv loop here.)
 	 */
+	bzero(&msghdr, sizeof (msghdr));
+	msghdr.msg_iov = uio->uio_iov;
+	msghdr.msg_iovlen = uio->uio_iovcnt;
 	rc = ksocket_recvmsg(sock, &msghdr, 0,
 	    &recvcnt, ofile->f_cr);
+
+	mutex_enter(&sr->sr_mutex);
+	sr->cancel_method = NULL;
+	sr->cancel_arg2 = NULL;
+	switch (sr->sr_state) {
+	case SMB_REQ_STATE_WAITING_PIPE:
+		sr->sr_state = SMB_REQ_STATE_ACTIVE;
+		break;
+	case SMB_REQ_STATE_CANCEL_PENDING:
+		sr->sr_state = SMB_REQ_STATE_CANCELLED;
+		rc = EINTR;
+		break;
+	default:
+		/* keep rc from above */
+		break;
+	}
+	mutex_exit(&sr->sr_mutex);
+
 	if (rc != 0)
 		goto out;
 
@@ -397,12 +495,12 @@ out:
 }
 
 int
-smb_opipe_get_nread(smb_request_t *sr, int *nread)
+smb_opipe_ioctl(smb_request_t *sr, int cmd, void *arg, int *rvalp)
 {
 	smb_ofile_t *ofile;
 	smb_opipe_t *opipe;
 	ksocket_t sock;
-	int rc, trval;
+	int rc;
 
 	ofile = sr->fid_ofile;
 	ASSERT(ofile->f_ftype == SMB_FTYPE_MESG_PIPE);
@@ -417,10 +515,143 @@ smb_opipe_get_nread(smb_request_t *sr, int *nread)
 	if (sock == NULL)
 		return (EBADF);
 
-	rc = ksocket_ioctl(sock, FIONREAD, (intptr_t)nread, &trval,
-	    ofile->f_cr);
+	rc = ksocket_ioctl(sock, cmd, (intptr_t)arg, rvalp, ofile->f_cr);
 
 	ksocket_rele(sock);
 
 	return (rc);
+}
+
+/*
+ * Get the smb_attr_t for a named pipe.
+ * Caller has already cleared to zero.
+ */
+int
+smb_opipe_getattr(smb_ofile_t *of, smb_attr_t *ap)
+{
+
+	if (of->f_pipe == NULL)
+		return (EINVAL);
+
+	ap->sa_vattr.va_type = VFIFO;
+	ap->sa_vattr.va_nlink = 1;
+	ap->sa_vattr.va_nodeid = (uintptr_t)of->f_pipe;
+	ap->sa_dosattr = FILE_ATTRIBUTE_NORMAL;
+	ap->sa_allocsz = SMB_PIPE_MAX_MSGSIZE;
+
+	return (0);
+}
+
+int
+smb_opipe_getname(smb_ofile_t *of, char *buf, size_t buflen)
+{
+	smb_opipe_t *opipe;
+
+	if ((opipe = of->f_pipe) == NULL)
+		return (EINVAL);
+
+	(void) snprintf(buf, buflen, "\\%s", opipe->p_name);
+	return (0);
+}
+
+/*
+ * Handle device type FILE_DEVICE_NAMED_PIPE
+ * for smb2_ioctl
+ */
+/* ARGSUSED */
+uint32_t
+smb_opipe_fsctl(smb_request_t *sr, smb_fsctl_t *fsctl)
+{
+	uint32_t status;
+
+	if (!STYPE_ISIPC(sr->tid_tree->t_res_type))
+		return (NT_STATUS_INVALID_DEVICE_REQUEST);
+
+	switch (fsctl->CtlCode) {
+	case FSCTL_PIPE_TRANSCEIVE:
+		status = smb_opipe_transceive(sr, fsctl);
+		break;
+
+	case FSCTL_PIPE_PEEK:
+	case FSCTL_PIPE_WAIT:
+		/* XXX todo */
+		status = NT_STATUS_NOT_SUPPORTED;
+		break;
+
+	default:
+		ASSERT(!"CtlCode");
+		status = NT_STATUS_INTERNAL_ERROR;
+		break;
+	}
+
+	return (status);
+}
+
+uint32_t
+smb_opipe_transceive(smb_request_t *sr, smb_fsctl_t *fsctl)
+{
+	smb_vdb_t	vdb;
+	smb_ofile_t	*ofile;
+	struct mbuf	*mb;
+	uint32_t	status;
+	int		len, rc;
+
+	/*
+	 * Caller checked that this is the IPC$ share,
+	 * and that this call has a valid open handle.
+	 * Just check the type.
+	 */
+	ofile = sr->fid_ofile;
+	if (ofile->f_ftype != SMB_FTYPE_MESG_PIPE)
+		return (NT_STATUS_INVALID_HANDLE);
+
+	rc = smb_mbc_decodef(fsctl->in_mbc, "#B",
+	    fsctl->InputCount, &vdb);
+	if (rc != 0) {
+		/* Not enough data sent. */
+		return (NT_STATUS_INVALID_PARAMETER);
+	}
+
+	rc = smb_opipe_write(sr, &vdb.vdb_uio);
+	if (rc != 0)
+		return (smb_errno2status(rc));
+
+	vdb.vdb_tag = 0;
+	vdb.vdb_uio.uio_iov = &vdb.vdb_iovec[0];
+	vdb.vdb_uio.uio_iovcnt = MAX_IOVEC;
+	vdb.vdb_uio.uio_segflg = UIO_SYSSPACE;
+	vdb.vdb_uio.uio_extflg = UIO_COPY_DEFAULT;
+	vdb.vdb_uio.uio_loffset = (offset_t)0;
+	vdb.vdb_uio.uio_resid = fsctl->MaxOutputResp;
+	mb = smb_mbuf_allocate(&vdb.vdb_uio);
+
+	rc = smb_opipe_read(sr, &vdb.vdb_uio);
+	if (rc != 0) {
+		m_freem(mb);
+		return (smb_errno2status(rc));
+	}
+
+	len = fsctl->MaxOutputResp - vdb.vdb_uio.uio_resid;
+	smb_mbuf_trim(mb, len);
+	MBC_ATTACH_MBUF(fsctl->out_mbc, mb);
+
+	/*
+	 * If the output buffer holds a partial pipe message,
+	 * we're supposed to return NT_STATUS_BUFFER_OVERFLOW.
+	 * As we don't have message boundary markers, the best
+	 * we can do is return that status when we have ALL of:
+	 *	Output buffer was < SMB_PIPE_MAX_MSGSIZE
+	 *	We filled the output buffer (resid==0)
+	 *	There's more data (ioctl FIONREAD)
+	 */
+	status = NT_STATUS_SUCCESS;
+	if (fsctl->MaxOutputResp < SMB_PIPE_MAX_MSGSIZE &&
+	    vdb.vdb_uio.uio_resid == 0) {
+		int nread = 0, trval;
+		rc = smb_opipe_ioctl(sr, FIONREAD, &nread, &trval);
+		if (rc == 0 && nread != 0)
+			status = NT_STATUS_BUFFER_OVERFLOW;
+	}
+
+	return (status);
 }

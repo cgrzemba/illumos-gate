@@ -25,8 +25,9 @@
  */
 /*
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
- * Copyright (c) 2014, Joyent, Inc. All rights reserved.
+ * Copyright 2018 Joyent, Inc.
  * Copyright (c) 2013 by Delphix. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #define	_STRUCTURED_PROC	1
@@ -49,6 +50,7 @@
 
 #include "Pcontrol.h"
 #include "P32ton.h"
+#include "proc_fd.h"
 
 typedef enum {
 	STR_NONE,
@@ -509,6 +511,7 @@ new_per_lwp(void *data, const lwpstatus_t *lsp, const lwpsinfo_t *lip)
 {
 	pgcore_t *pgc = data;
 	struct ps_prochandle *P = pgc->P;
+	prlwpname_t name = { 0, "" };
 	psinfo_t ps;
 
 	/*
@@ -577,6 +580,14 @@ new_per_lwp(void *data, const lwpstatus_t *lsp, const lwpsinfo_t *lip)
 #endif	/* __sparcv9 */
 #endif	/* sparc */
 
+	if (Plwp_getname(P, lsp->pr_lwpid, name.pr_lwpname,
+	    sizeof (name.pr_lwpname)) == 0) {
+		name.pr_lwpid = lsp->pr_lwpid;
+		if (write_note(pgc->pgc_fd, NT_LWPNAME, &name,
+		    sizeof (name), pgc->pgc_doff) != 0)
+			return (1);
+	}
+
 	if (!(lsp->pr_flags & PR_AGENT))
 		return (0);
 
@@ -602,12 +613,19 @@ new_per_lwp(void *data, const lwpstatus_t *lsp, const lwpsinfo_t *lip)
 }
 
 static int
-iter_fd(void *data, prfdinfo_t *fdinfo)
+iter_fd(void *data, const prfdinfo_t *fdinfo)
 {
 	fditer_t *iter = data;
+	prfdinfo_core_t core;
+	int ret = 0;
 
-	if (write_note(iter->fd_fd, NT_FDINFO, fdinfo,
-	    sizeof (*fdinfo), iter->fd_doff) != 0)
+	if (proc_fdinfo_to_core(fdinfo, &core) != 0)
+		return (1);
+
+	ret = write_note(iter->fd_fd, NT_FDINFO, &core,
+	    sizeof (core), iter->fd_doff);
+
+	if (ret != 0)
 		return (1);
 	return (0);
 }
@@ -1392,10 +1410,10 @@ Pfgcore(struct ps_prochandle *P, int fd, core_content_t content)
 		pprivsz = PRIV_PRPRIV_SIZE(ppriv);
 
 		if (write_note(fd, NT_PRPRIV, ppriv, pprivsz, &doff) != 0) {
-			free(ppriv);
+			Ppriv_free(P, ppriv);
 			goto err;
 		}
-		free(ppriv);
+		Ppriv_free(P, ppriv);
 
 		if ((pinfo = getprivimplinfo()) == NULL)
 			goto err;
@@ -1416,6 +1434,22 @@ Pfgcore(struct ps_prochandle *P, int fd, core_content_t content)
 
 		if (Pfdinfo_iter(P, iter_fd, &iter) != 0)
 			goto err;
+	}
+
+
+	{
+		prsecflags_t *psf = NULL;
+
+		if (Psecflags(P, &psf) != 0)
+			goto err;
+
+		if (write_note(fd, NT_SECFLAGS, psf,
+		    sizeof (prsecflags_t), &doff) != 0) {
+			Psecflags_free(psf);
+			goto err;
+		}
+
+		Psecflags_free(psf);
 	}
 
 #if defined(__i386) || defined(__amd64)
@@ -1501,6 +1535,7 @@ err:
 	 */
 	(void) ftruncate64(fd, 0);
 	free(pgc.pgc_chunk);
+
 	return (-1);
 }
 

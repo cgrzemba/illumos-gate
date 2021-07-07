@@ -20,11 +20,11 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #include <smbsrv/smb_kproto.h>
-#include <smbsrv/winioctl.h>
+#include <smb/winioctl.h>
 
 
 static uint32_t smb_nt_trans_ioctl_noop(smb_request_t *, smb_xa_t *);
@@ -33,14 +33,11 @@ static uint32_t smb_nt_trans_ioctl_set_sparse(smb_request_t *, smb_xa_t *);
 static uint32_t smb_nt_trans_ioctl_query_alloc_ranges(smb_request_t *,
     smb_xa_t *);
 static uint32_t smb_nt_trans_ioctl_set_zero_data(smb_request_t *, smb_xa_t *);
+static uint32_t smb_nt_trans_ioctl_enum_snaps(smb_request_t *, smb_xa_t *);
 
 /*
  * This table defines the list of FSCTL values for which we'll
  * call a funtion to perform specific processing.
- *
- * Note: If support is added for FSCTL_SET_ZERO_DATA, it must break
- * any oplocks on the file to none:
- *   smb_oplock_break(sr, node, SMB_OPLOCK_BREAK_TO_NONE);
  */
 static const struct {
 	uint32_t fcode;
@@ -49,7 +46,7 @@ static const struct {
 	{ FSCTL_GET_OBJECT_ID, smb_nt_trans_ioctl_invalid_parm },
 	{ FSCTL_QUERY_ALLOCATED_RANGES, smb_nt_trans_ioctl_query_alloc_ranges },
 	{ FSCTL_SET_ZERO_DATA, smb_nt_trans_ioctl_set_zero_data },
-	{ FSCTL_SRV_ENUMERATE_SNAPSHOTS, smb_vss_ioctl_enumerate_snaps },
+	{ FSCTL_SRV_ENUMERATE_SNAPSHOTS, smb_nt_trans_ioctl_enum_snaps },
 	{ FSCTL_SET_SPARSE, smb_nt_trans_ioctl_set_sparse },
 	{ FSCTL_FIND_FILES_BY_SID, smb_nt_trans_ioctl_noop }
 };
@@ -221,7 +218,12 @@ smb_nt_trans_ioctl_set_sparse(smb_request_t *sr, smb_xa_t *xa)
  * smb_nt_trans_ioctl_set_zero_data
  *
  * Check that the request is valid on the specified file.
- * The implementation is a noop.
+ * The implementation is a noop. XXX - bug!
+ * XXX: We have this in the fsclt module now.  Call that.
+ *
+ * Note: When support is added for FSCTL_SET_ZERO_DATA, it must
+ * break any oplocks on the file to none:
+ *	(void) smb_oplock_break_WRITE(node, ofile);
  */
 /* ARGSUSED */
 static uint32_t
@@ -323,4 +325,35 @@ smb_nt_trans_ioctl_query_alloc_ranges(smb_request_t *sr, smb_xa_t *xa)
 
 	smbsr_release_file(sr);
 	return (NT_STATUS_SUCCESS);
+}
+
+static uint32_t
+smb_nt_trans_ioctl_enum_snaps(smb_request_t *sr, smb_xa_t *xa)
+{
+	smb_fsctl_t fsctl;
+	uint32_t status;
+
+	if (STYPE_ISIPC(sr->tid_tree->t_res_type))
+		return (NT_STATUS_INVALID_PARAMETER);
+
+	smbsr_lookup_file(sr);
+	if (sr->fid_ofile == NULL)
+		return (NT_STATUS_INVALID_HANDLE);
+
+	if (!SMB_FTYPE_IS_DISK(sr->fid_ofile->f_ftype)) {
+		smbsr_release_file(sr);
+		return (NT_STATUS_INVALID_PARAMETER);
+	}
+
+	fsctl.CtlCode = FSCTL_SRV_ENUMERATE_SNAPSHOTS;
+	fsctl.InputCount = xa->smb_tpscnt;
+	fsctl.OutputCount = 0;
+	fsctl.MaxOutputResp = xa->smb_mdrcnt;
+	fsctl.in_mbc = &xa->req_param_mb;
+	fsctl.out_mbc = &xa->rep_data_mb;
+
+	status = smb_vss_enum_snapshots(sr, &fsctl);
+
+	smbsr_release_file(sr);
+	return (status);
 }

@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 1988, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011, Joyent, Inc. All rights reserved.
+ * Copyright 2020 Oxide Computer Company
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
@@ -71,6 +72,7 @@
 #include <sys/pool.h>
 #include <sys/sdt.h>
 #include <sys/corectl.h>
+#include <sys/core.h>
 #include <sys/brand.h>
 #include <sys/libc_kernel.h>
 
@@ -452,7 +454,15 @@ proc_exit(int why, int what)
 	 */
 	if (p->p_dtrace_helpers != NULL) {
 		ASSERT(dtrace_helpers_cleanup != NULL);
-		(*dtrace_helpers_cleanup)();
+		(*dtrace_helpers_cleanup)(p);
+	}
+
+	/*
+	 * Clean up any signalfd state for the process.
+	 */
+	if (p->p_sigfd != NULL) {
+		VERIFY(sigfd_exit_helper != NULL);
+		(*sigfd_exit_helper)();
 	}
 
 	/* untimeout the realtime timers */
@@ -462,6 +472,14 @@ proc_exit(int why, int what)
 	if ((tmp_id = p->p_alarmid) != 0) {
 		p->p_alarmid = 0;
 		(void) untimeout(tmp_id);
+	}
+
+	/*
+	 * If we had generated any upanic(2) state, free that now.
+	 */
+	if (p->p_upanic != NULL) {
+		kmem_free(p->p_upanic, PRUPANIC_BUFLEN);
+		p->p_upanic = NULL;
 	}
 
 	/*

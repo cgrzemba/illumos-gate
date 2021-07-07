@@ -9,7 +9,7 @@
 .\" http://www.illumos.org/license/CDDL.
 .\"
 .\"
-.\" Copyright (c) 2014, Joyent, Inc. 
+.\" Copyright (c) 2014, Joyent, Inc.
 .\"
 .Dd "Dec 22, 2014"
 .Dt SMT_PAUSE 3C
@@ -26,10 +26,10 @@
 .Sh DESCRIPTION
 The
 .Fn smt_pause
-function performs a busy-wait for an implementation defined period of
-time. On hardware platforms that support it, it notifies the hardware
-that this is occurring in an effort to minimize resource usage. This is
-commonly used in the implementation of spin loops.
+function performs a busy-wait for an implementation defined period of time.
+On hardware platforms that support it, it notifies the hardware that this is
+occurring in an effort to minimize resource usage.
+This is commonly used in the implementation of spin loops.
 .Sh INTERFACE STABILITY
 .Sy Committed
 .Sh MT-LEVEL

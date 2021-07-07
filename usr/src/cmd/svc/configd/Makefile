@@ -22,6 +22,10 @@
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
+# Copyright 2015 RackTop Systems.
+#
+# Copyright 2020 Joyent, Inc.
+#
 
 MYPROG = svc.configd
 MYOBJS = \
@@ -46,8 +50,6 @@ NATIVE_BUILD=$(POUND_SIGN)
 $(NATIVE_BUILD)PROG = $(MYPROG:%=%-native)
 $(NATIVE_BUILD)OBJS = $(MYOBJS:%.o=%-native.o)
 
-ROOTCMDDIR=	$(ROOT)/lib/svc/bin
-
 MYCPPFLAGS = -I. -I../common -I../../../common/svc \
 	-I$(ROOT)/usr/include/sqlite-sys -D_REENTRANT
 CPPFLAGS += $(MYCPPFLAGS)
@@ -57,10 +59,13 @@ CERRWARN += -_gcc=-Wno-type-limits
 CERRWARN += -_gcc=-Wno-unused-label
 CERRWARN += -_gcc=-Wno-unused-variable
 CERRWARN += -_gcc=-Wno-unused-function
-CERRWARN += -_gcc=-Wno-uninitialized
-MYLDLIBS = -lumem -luutil -lbsm
-LDLIBS	+= -lsecdb $(MYLDLIBS)
-LINTFLAGS += -errtags -erroff=E_BAD_FORMAT_ARG_TYPE2 -erroff=E_NAME_DEF_NOT_USED2
+CERRWARN += $(CNOWARN_UNINIT)
+
+# strange false positive
+SMOFF += free
+
+MYLDLIBS = -lumem -luutil
+LDLIBS	+= -lsecdb -lbsm $(MYLDLIBS)
 
 CLOBBERFILES +=	$(MYPROG:%=%-native)
 
@@ -68,17 +73,18 @@ LIBUUTIL	= $(SRC)/lib/libuutil
 LIBSCF		= $(SRC)/lib/libscf
 
 SCRIPTFILE	= restore_repository
-ROOTSCRIPTFILE	= $(ROOTCMDDIR)/$(SCRIPTFILE)
+ROOTSCRIPTFILE	= $(ROOTLIBSVCBIN)/$(SCRIPTFILE)
 
 #
-# Native variant (used in ../seed)
+# Native variant (used in ../seed).
 #
+$(NATIVE_BUILD)NATIVE_LIBS += libumem.so libc.so
 $(NATIVE_BUILD)CC =	$(NATIVECC)
 $(NATIVE_BUILD)LD =	$(NATIVELD)
 $(NATIVE_BUILD)CFLAGS =	$(NATIVE_CFLAGS)
 $(NATIVE_BUILD)CPPFLAGS = $(MYCPPFLAGS) -I$(LIBUUTIL)/common -I$(LIBSCF)/inc
 $(NATIVE_BUILD)CPPFLAGS += -DNATIVE_BUILD
-$(NATIVE_BUILD)LDFLAGS =
+$(NATIVE_BUILD)LDFLAGS = $(BDIRECT)
 $(NATIVE_BUILD)LDLIBS = -L$(ADJUNCT_PROTO)/usr/lib -R$(ADJUNCT_PROTO)/usr/lib \
 			-L$(LIBUUTIL)/native -R $(LIBUUTIL)/native $(MYLDLIBS)
 
@@ -113,19 +119,15 @@ $(PROG): $(OBJS)
 	$(COMPILE.c) -o $@ $<
 	$(POST_PROCESS_O)
 
-$(ROOTCMDDIR)/%: %.sh
+$(ROOTLIBSVCBIN)/%: %.sh
 	$(INS.rename)
 
-install: all $(ROOTCMD) $(ROOTVARSADMFILE) $(ROOTSCRIPTFILE)
+install: all $(ROOTLIBSVCBINPROG) $(ROOTVARSADMFILE) $(ROOTSCRIPTFILE)
 
 clean: FRC
 	$(RM) $(MYOBJS) $(MYOBJS:%.o=%-native.o)
 
 clobber:
-
-lint:   lint_SRCS
-
-lint_SRCS:
 
 include ../../Makefile.targ
 

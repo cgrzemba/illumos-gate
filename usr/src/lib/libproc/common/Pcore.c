@@ -24,9 +24,10 @@
  */
 /*
  * Copyright 2012 DEY Storage Systems, Inc.  All rights reserved.
- * Copyright (c) 2014, Joyent, Inc. All rights reserved.
+ * Copyright (c) 2018, Joyent, Inc. All rights reserved.
  * Copyright (c) 2013 by Delphix. All rights reserved.
  * Copyright 2015 Gary Mills
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <sys/types.h>
@@ -50,6 +51,7 @@
 #include "Pcontrol.h"
 #include "P32ton.h"
 #include "Putil.h"
+#include "proc_fd.h"
 #ifdef __x86
 #include "Pcore_linux.h"
 #endif
@@ -159,6 +161,25 @@ Pcred_core(struct ps_prochandle *P, prcred_t *pcrp, int ngroups, void *data)
 
 /*ARGSUSED*/
 static int
+Psecflags_core(struct ps_prochandle *P, prsecflags_t **psf, void *data)
+{
+	core_info_t *core = data;
+
+	if (core->core_secflags == NULL) {
+		errno = ENODATA;
+		return (-1);
+	}
+
+	if ((*psf = calloc(1, sizeof (prsecflags_t))) == NULL)
+		return (-1);
+
+	(void) memcpy(*psf, core->core_secflags, sizeof (prsecflags_t));
+
+	return (0);
+}
+
+/*ARGSUSED*/
+static int
 Ppriv_core(struct ps_prochandle *P, prpriv_t **pprv, void *data)
 {
 	core_info_t *core = data;
@@ -222,6 +243,10 @@ Pfini_core(struct ps_prochandle *P, void *data)
 			free(core->core_ppii);
 		if (core->core_zonename != NULL)
 			free(core->core_zonename);
+		if (core->core_secflags != NULL)
+			free(core->core_secflags);
+		if (core->core_upanic != NULL)
+			free(core->core_upanic);
 #ifdef __x86
 		if (core->core_ldt != NULL)
 			free(core->core_ldt);
@@ -308,6 +333,7 @@ static const ps_ops_t P_core_ops = {
 	.pop_platform	= Pplatform_core,
 	.pop_uname	= Puname_core,
 	.pop_zonename	= Pzonename_core,
+	.pop_secflags	= Psecflags_core,
 #ifdef __x86
 	.pop_ldt	= Pldt_core
 #endif
@@ -704,9 +730,35 @@ err:
 }
 
 static int
+note_lwpname(struct ps_prochandle *P, size_t nbytes)
+{
+	prlwpname_t name;
+	lwp_info_t *lwp;
+
+	if (nbytes != sizeof (name) ||
+	    read(P->asfd, &name, sizeof (name)) != sizeof (name))
+		goto err;
+
+	if ((lwp = lwpid2info(P, name.pr_lwpid)) == NULL)
+		goto err;
+
+	if (strlcpy(lwp->lwp_name, name.pr_lwpname,
+	    sizeof (lwp->lwp_name)) >= sizeof (lwp->lwp_name)) {
+		errno = ENAMETOOLONG;
+		goto err;
+	}
+
+	return (0);
+
+err:
+	dprintf("Pgrab_core: failed to read NT_LWPNAME\n");
+	return (-1);
+}
+
+static int
 note_fdinfo(struct ps_prochandle *P, size_t nbytes)
 {
-	prfdinfo_t prfd;
+	prfdinfo_core_t prfd;
 	fd_info_t *fip;
 
 	if ((nbytes < sizeof (prfd)) ||
@@ -719,7 +771,13 @@ note_fdinfo(struct ps_prochandle *P, size_t nbytes)
 		dprintf("Pgrab_core: failed to add NT_FDINFO\n");
 		return (-1);
 	}
-	(void) memcpy(&fip->fd_info, &prfd, sizeof (prfd));
+	if (fip->fd_info == NULL) {
+		if (proc_fdinfo_from_core(&prfd, &fip->fd_info) != 0) {
+			dprintf("Pgrab_core: failed to convert NT_FDINFO\n");
+			return (-1);
+		}
+	}
+
 	return (0);
 }
 
@@ -740,6 +798,34 @@ note_platform(struct ps_prochandle *P, size_t nbytes)
 		}
 		plat[nbytes - 1] = '\0';
 		core->core_platform = plat;
+	}
+
+	return (0);
+}
+
+static int
+note_secflags(struct ps_prochandle *P, size_t nbytes)
+{
+	core_info_t *core = P->data;
+	prsecflags_t *psf;
+
+	if (core->core_secflags != NULL)
+		return (0);	/* Already seen */
+
+	if (sizeof (*psf) != nbytes) {
+		dprintf("Pgrab_core: NT_SECFLAGS changed size."
+		    "  Need to handle a version change?\n");
+		return (-1);
+	}
+
+	if (nbytes != 0 && ((psf = malloc(nbytes)) != NULL)) {
+		if (read(P->asfd, psf, nbytes) != nbytes) {
+			dprintf("Pgrab_core: failed to read NT_SECFLAGS\n");
+			free(psf);
+			return (-1);
+		}
+
+		core->core_secflags = psf;
 	}
 
 	return (0);
@@ -1117,6 +1203,34 @@ err:
 	return (-1);
 }
 
+static int
+note_upanic(struct ps_prochandle *P, size_t nbytes)
+{
+	core_info_t *core = P->data;
+	prupanic_t *pru;
+
+	if (core->core_upanic != NULL)
+		return (0);
+
+	if (sizeof (*pru) != nbytes) {
+		dprintf("Pgrab_core: NT_UPANIC changed size."
+		    "  Need to handle a version change?\n");
+		return (-1);
+	}
+
+	if (nbytes != 0 && ((pru = malloc(nbytes)) != NULL)) {
+		if (read(P->asfd, pru, nbytes) != nbytes) {
+			dprintf("Pgrab_core: failed to read NT_UPANIC\n");
+			free(pru);
+			return (-1);
+		}
+
+		core->core_upanic = pru;
+	}
+
+	return (0);
+}
+
 /*ARGSUSED*/
 static int
 note_notsup(struct ps_prochandle *P, size_t nbytes)
@@ -1180,6 +1294,9 @@ static int (*nhdlrs[])(struct ps_prochandle *, size_t) = {
 	note_zonename,		/* 21	NT_ZONENAME		*/
 	note_fdinfo,		/* 22	NT_FDINFO		*/
 	note_spymaster,		/* 23	NT_SPYMASTER		*/
+	note_secflags,		/* 24	NT_SECFLAGS		*/
+	note_lwpname,		/* 25	NT_LWPNAME		*/
+	note_upanic		/* 26	NT_UPANIC		*/
 };
 
 static void
@@ -1856,7 +1973,7 @@ core_find_data(struct ps_prochandle *P, Elf *elf, rd_loadobj_t *rlp)
 	uint_t i, pagemask;
 	size_t nphdrs;
 
-	rlp->rl_data_base = NULL;
+	rlp->rl_data_base = (uintptr_t)NULL;
 
 	/*
 	 * Find the first loadable, writeable Phdr and compute rl_data_base
@@ -1880,7 +1997,7 @@ core_find_data(struct ps_prochandle *P, Elf *elf, rd_loadobj_t *rlp)
 	 * If we didn't find an appropriate phdr or if the address we
 	 * computed has no mapping, return NULL.
 	 */
-	if (rlp->rl_data_base == NULL ||
+	if (rlp->rl_data_base == (uintptr_t)NULL ||
 	    (mp = Paddr2mptr(P, rlp->rl_data_base)) == NULL)
 		return (NULL);
 
@@ -2699,6 +2816,7 @@ Pfgrab_core(int core_fd, const char *aout_path, int *perr)
 
 			fp->file_ref = 1;
 			fp->file_fd = -1;
+			fp->file_dbgfile = -1;
 
 			fp->file_lo = malloc(sizeof (rd_loadobj_t));
 			fp->file_lname = strdup(execname);
@@ -2792,4 +2910,38 @@ Pgrab_core(const char *core, const char *aout, int gflag, int *perr)
 		*perr = G_NOCORE;
 
 	return (NULL);
+}
+
+int
+Pupanic(struct ps_prochandle *P, prupanic_t **pru)
+{
+	core_info_t *core;
+
+	if (P->state != PS_DEAD) {
+		errno = ENODATA;
+		return (-1);
+	}
+
+	core = P->data;
+	if (core->core_upanic == NULL) {
+		errno = ENOENT;
+		return (-1);
+	}
+
+	if (core->core_upanic->pru_version != PRUPANIC_VERSION_1) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	if ((*pru = calloc(1, sizeof (prupanic_t))) == NULL)
+		return (-1);
+	(void) memcpy(*pru, core->core_upanic, sizeof (prupanic_t));
+
+	return (0);
+}
+
+void
+Pupanic_free(prupanic_t *pru)
+{
+	free(pru);
 }

@@ -11,7 +11,7 @@
 .\"
 .\" Copyright 2015 Joyent, Inc.
 .\"
-.Dd May 07, 2015
+.Dd Dec 03, 2015
 .Dt AVL_DESTROY_NODES 3AVL
 .Os
 .Sh NAME
@@ -48,18 +48,20 @@ to
 and pass a pointer to it as the argument
 .Fa cookie .
 This is an opaque value that will be used to maintain where to next
-delete items from the tree. Callers should never modify it after
-initializing it. After each call to
+delete items from the tree.
+Callers should never modify it after initializing it.
+After each call to
 .Fn avl_destroy_nodes ,
 .Fa cookie
 will be updated and must be passed to subsequent calls to
-.Fn avl_destroy_nodes.
+.Fn avl_destroy_nodes .
 .Pp
 Each time
 .Fn avl_destroy_nodes
 is called, it will return a pointer to an object that had previously
 been inserted into the tree, allowing a caller the opportunity to delete
-or clean it up. Once
+or clean it up.
+Once
 .Fn avl_destroy_nodes
 returns a
 .Sy NULL
@@ -92,5 +94,5 @@ See
 in
 .Xr libavl 3LIB .
 .Sh SEE ALSO
-.Xr libavl 3LIB ,
-.Xr avl_destroy 3AVL
+.Xr avl_destroy 3AVL ,
+.Xr libavl 3LIB

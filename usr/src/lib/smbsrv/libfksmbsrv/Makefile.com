@@ -22,18 +22,23 @@
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+# Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
 #
+# Copyright (c) 2018, Joyent, Inc.
+#
+# Copyright 2020 RackTop Systems, Inc.
 
 LIBRARY =	libfksmbsrv.a
 VERS =		.1
 
 OBJS_LOCAL = \
 		fksmb_cred.o \
+		fksmb_encrypt_pkcs.o \
 		fksmb_fem.o \
 		fksmb_idmap.o \
 		fksmb_init.o \
 		fksmb_kdoor.o \
+		fksmb_preauth_pkcs.o \
 		fksmb_sign_pkcs.o \
 		fake_lookup.o \
 		fake_nblk.o \
@@ -51,14 +56,20 @@ OBJS_LOCAL = \
 OBJS_FS_SMBSRV = \
 		smb_acl.o				\
 		smb_alloc.o				\
+		smb_authenticate.o			\
 		smb_close.o				\
+		smb_cmn_oplock.o			\
+		smb_cmn_rename.o			\
+		smb_cmn_setfile.o			\
 		smb_common_open.o			\
 		smb_common_transact.o			\
 		smb_create.o				\
 		smb_delete.o				\
+		smb_dfs.o				\
 		smb_directory.o				\
 		smb_dispatch.o				\
 		smb_echo.o				\
+		smb_errno.o				\
 		smb_find.o				\
 		smb_flush.o				\
 		smb_fsinfo.o				\
@@ -75,6 +86,7 @@ OBJS_FS_SMBSRV = \
 		smb_negotiate.o				\
 		smb_net.o				\
 		smb_node.o				\
+		smb_notify.o				\
 		smb_nt_cancel.o				\
 		smb_nt_create_andx.o			\
 		smb_nt_transact_create.o		\
@@ -91,6 +103,7 @@ OBJS_FS_SMBSRV = \
 		smb_print.o				\
 		smb_process_exit.o			\
 		smb_query_fileinfo.o			\
+		smb_quota.o				\
 		smb_read.o				\
 		smb_rename.o				\
 		smb_sd.o				\
@@ -100,6 +113,7 @@ OBJS_FS_SMBSRV = \
 		smb_session_setup_andx.o		\
 		smb_set_fileinfo.o			\
 		smb_signing.o				\
+		smb_srv_oplock.o			\
 		smb_thread.o				\
 		smb_tree.o				\
 		smb_trans2_create_directory.o		\
@@ -108,15 +122,56 @@ OBJS_FS_SMBSRV = \
 		smb_tree_connect.o			\
 		smb_unlock_byte_range.o			\
 		smb_user.o				\
-		smb_vfs.o				\
 		smb_vops.o				\
 		smb_vss.o				\
-		smb_write.o
+		smb_write.o				\
+		\
+		smb2_aapl.o \
+		smb2_dispatch.o \
+		smb2_durable.o \
+		smb2_cancel.o \
+		smb2_change_notify.o \
+		smb2_close.o \
+		smb2_create.o \
+		smb2_echo.o \
+		smb2_flush.o \
+		smb2_fsctl_copychunk.o \
+		smb2_fsctl_fs.o \
+		smb2_fsctl_odx.o \
+		smb2_fsctl_sparse.o \
+		smb2_ioctl.o \
+		smb2_lease.o \
+		smb2_lock.o \
+		smb2_logoff.o \
+		smb2_negotiate.o \
+		smb2_ofile.o \
+		smb2_oplock.o \
+		smb2_qinfo_file.o \
+		smb2_qinfo_fs.o \
+		smb2_qinfo_sec.o \
+		smb2_qinfo_quota.o \
+		smb2_query_dir.o \
+		smb2_query_info.o \
+		smb2_read.o \
+		smb2_session_setup.o \
+		smb2_set_info.o \
+		smb2_setinfo_file.o \
+		smb2_setinfo_fs.o \
+		smb2_setinfo_quota.o \
+		smb2_setinfo_sec.o \
+		smb2_signing.o \
+		smb2_tree_connect.o \
+		smb2_tree_disconn.o \
+		smb2_write.o \
+	        \
+	        smb3_kdf.o \
+	        smb3_encrypt.o
 
 # Can't just link with -lsmb because of user vs kernel API
 # i.e. can't call free with mem from kmem_alloc, which is
 # what happens if we just link with -lsmb
 OBJS_CMN_SMBSRV = \
+		smb_cfg_util.o \
 		smb_inet.o \
 		smb_match.o \
 		smb_msgbuf.o \
@@ -134,7 +189,13 @@ OBJS_MISC = \
 		acl_common.o \
 		pathname.o \
 		refstr.o \
+		smb_status2winerr.o \
 		xattr_common.o
+
+# This one can't be in OBJECTS, as it has to depend on
+# all of those for the COMPILE.d rule (which processes
+# all those objects collecting probe instances).
+DTRACE_OBJS = fksmb_dt.o
 
 OBJECTS = \
 	$(OBJS_LOCAL) \
@@ -146,22 +207,20 @@ include ../../../Makefile.lib
 include ../../Makefile.lib
 
 # Force SOURCEDEBUG
-CSOURCEDEBUGFLAGS	= -g
-CCSOURCEDEBUGFLAGS	= -g
-STRIP_STABS 	= :
+CSOURCEDEBUGFLAGS	= $(CCGDEBUG)
+CCSOURCEDEBUGFLAGS	= $(CCGDEBUG)
+STRIP_STABS	= :
 
 
 # Note: need our sys includes _before_ ENVCPPFLAGS, proto etc.
+# Also, like Makefile.uts, reset CPPFLAGS
 CPPFLAGS.first += -I../../../libfakekernel/common
 CPPFLAGS.first += -I../common
+CPPFLAGS	= $(CPPFLAGS.first)
 
 INCS += -I$(SRC)/uts/common
 INCS += -I$(SRC)/common/smbsrv
 INCS += -I$(SRC)/common
-
-LINTCHECKFLAGS += -erroff=E_INCONS_ARG_DECL2
-LINTCHECKFLAGS += -erroff=E_INCONS_VAL_TYPE_DECL2
-LINTCHECKFLAGS += -erroff=E_INCONS_VAL_TYPE_USED2
 
 LDLIBS +=	$(MACH_LDLIBS)
 LDLIBS +=	-lfakekernel -lidmap -lcmdutils
@@ -172,8 +231,10 @@ CPPFLAGS += -D_FILE_OFFSET_BITS=64
 # Always want DEBUG here
 CPPFLAGS += -DDEBUG
 
-CERRWARN += -_gcc=-Wno-parentheses
 CERRWARN += -_gcc=-Wno-switch
+
+# not linted
+SMATCH=off
 
 SRCS=   $(OBJS_LOCAL:%.o=$(SRCDIR)/%.c) \
 	$(OBJS_FS_SMBSRV:%.o=$(SRC)/uts/common/fs/smbsrv/%.c) \
@@ -197,6 +258,10 @@ pics/refstr.o:		   $(SRC)/uts/common/os/refstr.c
 	$(COMPILE.c) -o $@ $(SRC)/uts/common/os/refstr.c
 	$(POST_PROCESS_O)
 
+pics/smb_status2winerr.o:  $(SRC)/common/smbclnt/smb_status2winerr.c
+	$(COMPILE.c) -o $@ $(SRC)/common/smbclnt/smb_status2winerr.c
+	$(POST_PROCESS_O)
+
 pics/xattr_common.o:	   $(SRC)/common/xattr/xattr_common.c
 	$(COMPILE.c) -o $@ $(SRC)/common/xattr/xattr_common.c
 	$(POST_PROCESS_O)
@@ -207,3 +272,12 @@ pics/xattr_common.o:	   $(SRC)/common/xattr/xattr_common.c
 
 include ../../Makefile.targ
 include ../../../Makefile.targ
+
+EXTPICS= $(DTRACE_OBJS:%=pics/%)
+CLEANFILES += $(EXTPICS)
+
+$(OBJS) $(PICS) : ../common/fksmb_dt.h
+
+pics/fksmb_dt.o: ../common/fksmb_dt.d $(PICS)
+	$(COMPILE.d) -C -s ../common/fksmb_dt.d -o $@ $(PICS)
+	$(POST_PROCESS_O)

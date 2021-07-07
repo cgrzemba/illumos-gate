@@ -33,6 +33,9 @@
 
 #define	ELF_TARGET_AMD64
 
+/* We deliberately choose a locale unaware ctype */
+#include	<sys/ctype.h>
+
 #include	<stdio.h>
 #include	<string.h>
 #include	<debug.h>
@@ -315,6 +318,41 @@ ld_sym_find(const char *name, Word hash, avl_index_t *where, Ofl_desc *ofl)
 	 * Return symbol found.
 	 */
 	return (sav->sav_sdp);
+}
+
+/*
+ * GCC sometimes emits local aliases for otherwise global symbols, such that
+ * it has a guaranteed way to refer to a symbol from the current object
+ * regardless of interposition.
+ *
+ * The only way we can match on these aliases is by them ending either
+ * ".localalias" or ".localalias.N" where N is any integer.
+ */
+static inline Boolean
+is_gcc_localalias(Sym_desc *sdp)
+{
+	char *p;
+
+	if (ELF_ST_BIND(sdp->sd_sym->st_info) != STB_LOCAL)
+		return (FALSE);
+
+	if ((p = strstr(sdp->sd_name, MSG_ORIG(MSG_SYM_LOCALALIAS))) != NULL) {
+		p += MSG_SYM_LOCALALIAS_SIZE;
+		switch (*p++) {
+		case '\0':			/* unnumbered */
+			return (TRUE);
+		case '.':			/* numbered? */
+			if (*p == '\0')		/* no integer */
+				return (FALSE);
+			while (ISDIGIT(*p))	/* skip integer */
+				p++;
+			if (*p != '\0')		/* non-integer chars */
+				return (FALSE);
+			return (TRUE);
+		}
+	}
+
+	return (FALSE);
 }
 
 /*
@@ -636,7 +674,7 @@ sym_add_spec(const char *name, const char *uname, Word sdaux_id,
     sd_flag_t sdflags_u, sd_flag_t sdflags, Ofl_desc *ofl)
 {
 	Sym_desc	*sdp;
-	Sym_desc 	*usdp;
+	Sym_desc	*usdp;
 	Sym		*sym;
 	Word		hash;
 	avl_index_t	where;
@@ -692,9 +730,10 @@ sym_add_spec(const char *name, const char *uname, Word sdaux_id,
 				usdp->sd_flags |= FLG_SY_MAPUSED;
 
 			DBG_CALL(Dbg_syms_updated(ofl, usdp, uname));
-		} else
+		} else {
 			ld_eprintf(ofl, ERR_WARNING, MSG_INTL(MSG_SYM_RESERVE),
 			    uname, usdp->sd_file->ifl_name);
+		}
 	} else {
 		/*
 		 * If the symbol does not exist create it.
@@ -795,7 +834,7 @@ sym_add_spec(const char *name, const char *uname, Word sdaux_id,
  *
  *  -	the symbol has been defined by an implicitly supplied library, ie. one
  *	which was encounted because it was NEEDED by another library, rather
- * 	than from a command line supplied library which would become the only
+ *	than from a command line supplied library which would become the only
  *	dependency of the output file being produced.
  *
  *  -	the symbol has been defined by a version of a shared object that is
@@ -885,6 +924,72 @@ sym_undef_entry(Ofl_desc *ofl, Sym_desc *sdp, Type type, ofl_flag_t ofl_flag,
 }
 
 /*
+ * If an undef symbol exists naming a bound for the output section,
+ * turn it into a defined symbol with the correct value.
+ *
+ * We set an arbitrary 1KB limit on the resulting symbol names.
+ */
+static void
+sym_add_bounds(Ofl_desc *ofl, Os_desc *osp, Word bound)
+{
+	Sym_desc *bsdp;
+	char symn[1024];
+	size_t nsz;
+
+	switch (bound) {
+	case SDAUX_ID_SECBOUND_START:
+		nsz = snprintf(symn, sizeof (symn), "%s%s",
+		    MSG_ORIG(MSG_SYM_SECBOUND_START), osp->os_name);
+		if (nsz >= sizeof (symn))
+			return;
+		break;
+	case SDAUX_ID_SECBOUND_STOP:
+		nsz = snprintf(symn, sizeof (symn), "%s%s",
+		    MSG_ORIG(MSG_SYM_SECBOUND_STOP), osp->os_name);
+		if (nsz >= sizeof (symn))
+			return;
+		break;
+	default:
+		assert(0);
+	}
+
+	if ((bsdp = ld_sym_find(symn, SYM_NOHASH, NULL, ofl)) != NULL) {
+		if ((bsdp->sd_shndx != SHN_UNDEF) &&
+		    (bsdp->sd_ref == REF_REL_NEED)) {
+			ld_eprintf(ofl, ERR_WARNING, MSG_INTL(MSG_SYM_RESERVE),
+			    symn, bsdp->sd_file->ifl_name);
+			return;
+		}
+
+		DBG_CALL(Dbg_syms_updated(ofl, bsdp, symn));
+
+		bsdp->sd_aux->sa_symspec = bound;
+		bsdp->sd_aux->sa_boundsec = osp;
+		bsdp->sd_flags |= FLG_SY_SPECSEC;
+		bsdp->sd_ref = REF_REL_NEED;
+		bsdp->sd_sym->st_info = ELF_ST_INFO(STB_GLOBAL, STT_NOTYPE);
+		bsdp->sd_sym->st_other = STV_PROTECTED;
+		bsdp->sd_isc = NULL;
+		bsdp->sd_sym->st_size = 0;
+		bsdp->sd_sym->st_value = 0;
+		bsdp->sd_shndx = bsdp->sd_sym->st_shndx = SHN_ABS;
+	}
+}
+
+static Boolean
+is_cname(const char *name)
+{
+	if (strlen(name) == strspn(name,
+	    "abcdefghijklmnopqrstuvwxyz"
+	    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	    "0123456789"
+	    "_"))
+		return (TRUE);
+	else
+		return (FALSE);
+}
+
+/*
  * At this point all symbol input processing has been completed, therefore
  * complete the symbol table entries by generating any necessary internal
  * symbols.
@@ -893,11 +998,39 @@ uintptr_t
 ld_sym_spec(Ofl_desc *ofl)
 {
 	Sym_desc	*sdp;
+	Sg_desc		*sgp;
+
+	DBG_CALL(Dbg_syms_spec_title(ofl->ofl_lml));
+
+	/*
+	 * For each section in the output file, look for symbols named for the
+	 * __start/__stop patterns.  If references exist, flesh the symbols to
+	 * be defined.
+	 *
+	 * The symbols are given values at the same time as the other special
+	 * symbols.
+	 */
+	if (!(ofl->ofl_flags & FLG_OF_RELOBJ) ||
+	    (ofl->ofl_flags & FLG_OF_KMOD)) {
+		Aliste		idx1;
+
+		for (APLIST_TRAVERSE(ofl->ofl_segs, idx1, sgp)) {
+			Os_desc *osp;
+			Aliste idx2;
+
+			for (APLIST_TRAVERSE(sgp->sg_osdescs, idx2, osp)) {
+				if (is_cname(osp->os_name)) {
+					sym_add_bounds(ofl, osp,
+					    SDAUX_ID_SECBOUND_START);
+					sym_add_bounds(ofl, osp,
+					    SDAUX_ID_SECBOUND_STOP);
+				}
+			}
+		}
+	}
 
 	if (ofl->ofl_flags & FLG_OF_RELOBJ)
 		return (1);
-
-	DBG_CALL(Dbg_syms_spec_title(ofl->ofl_lml));
 
 	if (sym_add_spec(MSG_ORIG(MSG_SYM_ETEXT), MSG_ORIG(MSG_SYM_ETEXT_U),
 	    SDAUX_ID_ETEXT, 0, (FLG_SY_DEFAULT | FLG_SY_EXPDEF),
@@ -990,6 +1123,9 @@ sym_cap_vis(const char *name, Word hash, Sym *sym, Ofl_desc *ofl)
 		break;
 	case STV_SINGLETON:
 		sdflags |= FLG_SY_SINGLE;
+		break;
+	case STV_HIDDEN:
+		sdflags |= FLG_SY_HIDDEN;
 		break;
 	}
 
@@ -1133,7 +1269,7 @@ ensure_array_local(Ofl_desc *ofl, APlist *apl, const char *str)
  * or modified), validate and count the relevant entries:
  *
  *  -	check and print any undefined symbols remaining.  Note that if a symbol
- *	has been defined by virtue of the inclusion of 	an implicit shared
+ *	has been defined by virtue of the inclusion of	an implicit shared
  *	library, it is still classed as undefined.
  *
  *  -	count the number of global needed symbols together with the size of
@@ -1141,7 +1277,7 @@ ensure_array_local(Ofl_desc *ofl, APlist *apl, const char *str)
  *	symbols may be reduced to locals).
  *
  *  -	establish the size and alignment requirements for the global .bss
- *	section (the alignment of this section is based on the 	first symbol
+ *	section (the alignment of this section is based on the first symbol
  *	that it will contain).
  */
 uintptr_t
@@ -1516,7 +1652,7 @@ ld_sym_validate(Ofl_desc *ofl)
 		 */
 		if ((sym->st_shndx == SHN_COMMON) &&
 		    (((oflags & FLG_OF_RELOBJ) == 0) ||
-		    (SYM_IS_HIDDEN(sdp) && (oflags & FLG_OF_PROCRED)))) {
+		    ld_sym_reducable(ofl, sdp))) {
 			if ((sdp->sd_move == NULL) ||
 			    ((sdp->sd_flags & FLG_SY_PAREXPN) == 0)) {
 				if (type != STT_TLS) {
@@ -1568,7 +1704,7 @@ ld_sym_validate(Ofl_desc *ofl)
 		 * hidden requirement and ensures the symbol isn't made globally
 		 * available at runtime.
 		 */
-		if (SYM_IS_HIDDEN(sdp) && (oflags & FLG_OF_PROCRED)) {
+		if (ld_sym_reducable(ofl, sdp)) {
 			/*
 			 * If any reductions are being processed, keep a count
 			 * of eliminated symbols, and if the symbol is being
@@ -1890,7 +2026,7 @@ typedef struct {
  * input sections from this input file have been assigned an input section
  * descriptor which is saved in the `ifl_isdesc' array.
  *
- *  -	local symbols are saved (as is) if the input file is a 	relocatable
+ *  -	local symbols are saved (as is) if the input file is a relocatable
  *	object
  *
  *  -	global symbols are added to the linkers internal symbol table if they
@@ -1942,7 +2078,6 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 	uchar_t		osabi = ifl->ifl_ehdr->e_ident[EI_OSABI];
 	Half		mach = ifl->ifl_ehdr->e_machine;
 	Half		etype = ifl->ifl_ehdr->e_type;
-	int		etype_rel;
 	const char	*symsecname, *strsecname;
 	Word		symsecndx;
 	avl_index_t	where;
@@ -2019,13 +2154,12 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 	if ((ifl->ifl_oldndx = libld_malloc((size_t)(total *
 	    sizeof (Sym_desc *)))) == NULL)
 		return (S_ERROR);
-	etype_rel = (etype == ET_REL);
-	if (etype_rel && local) {
+	if ((etype == ET_REL) && (local != 0)) {
 		if ((ifl->ifl_locs =
 		    libld_calloc(sizeof (Sym_desc), local)) == NULL)
 			return (S_ERROR);
 		/* LINTED */
-		ifl->ifl_locscnt = (Word)local;
+		ifl->ifl_locscnt = local;
 	}
 	ifl->ifl_symscnt = total;
 
@@ -2033,7 +2167,7 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 	 * If there are local symbols to save add them to the symbol table
 	 * index array.
 	 */
-	if (local) {
+	if (local != 0) {
 		int		allow_ldynsym = OFL_ALLOW_LDYNSYM(ofl);
 		Sym_desc	*last_file_sdp = NULL;
 		int		last_file_ndx = 0;
@@ -2117,8 +2251,9 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 					/* Will not appear in output object */
 					symtab_enter = 0;
 				}
-			} else if (etype == ET_DYN)
+			} else if (etype == ET_DYN) {
 				continue;
+			}
 
 			/*
 			 * Fill in the remaining symbol descriptor information.
@@ -2215,7 +2350,7 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 			 * to make sure the section boundaries encompass it.
 			 * If they don't, the ELF file is corrupt.
 			 */
-			if (etype_rel) {
+			if (etype == ET_REL) {
 				if (SYM_LOC_BADADDR(sdp, sym, type)) {
 					issue_badaddr_msg(ifl, ofl, sdp,
 					    sym, shndx);
@@ -2251,6 +2386,14 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 				}
 			}
 
+			/*
+			 * If this symbol comes from a relocatable object and
+			 * looks like a GCC local function alias, don't
+			 * include it in dynsort sections, since the global
+			 * name will always be preferable.
+			 */
+			if ((etype == ET_REL) && is_gcc_localalias(sdp))
+				sdp->sd_flags |= FLG_SY_NODYNSORT;
 
 			/*
 			 * Sanity check for TLS
@@ -2631,10 +2774,10 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 			if ((sdp = ld_sym_enter(name, nsym, hash, ifl, ofl, ndx,
 			    shndx, sdflags, &where)) == (Sym_desc *)S_ERROR)
 				return (S_ERROR);
-
 		} else if (ld_sym_resolve(sdp, nsym, ifl, ofl, ndx, shndx,
-		    sdflags) == S_ERROR)
+		    sdflags) == S_ERROR) {
 			return (S_ERROR);
+		}
 
 		/*
 		 * Now that we have a symbol descriptor, retain the descriptor
@@ -2692,7 +2835,7 @@ ld_sym_process(Is_desc *isc, Ifl_desc *ifl, Ofl_desc *ofl)
 		 * case, we don't check it, because it was already checked
 		 * as part of its own file.
 		 */
-		if (etype_rel && (sdp->sd_file == ifl)) {
+		if ((etype == ET_REL) && (sdp->sd_file == ifl)) {
 			Sym *tsym = sdp->sd_sym;
 
 			if (SYM_LOC_BADADDR(sdp, tsym,
@@ -3109,7 +3252,7 @@ ld_sym_add_u(const char *name, Ofl_desc *ofl, Msg mid)
  *	Sets isp->is_sym_name to the allocated string. Returns the
  *	string pointer, or NULL on allocation failure.
  */
-const const char *
+const char *
 ld_stt_section_sym_name(Is_desc *isp)
 {
 	const char	*fmt;
@@ -3132,4 +3275,27 @@ ld_stt_section_sym_name(Is_desc *isp)
 	}
 
 	return (isp->is_sym_name);
+}
+
+/*
+ * If we're producing a relocatable object and the symbol is eligible for
+ * COMDAT section, it shouldn't be reduced in scope as that will break the
+ * COMDAT matching when the output object is later consumed.  Leave it alone,
+ * and any reduction (and COMDAT) processing will occur then.
+ *
+ * Otherwise, any hidden symbol is reduced when reductions are being processed.
+ */
+Boolean
+ld_sym_reducable(Ofl_desc *ofl, Sym_desc *sdp)
+{
+	Is_desc *isc = sdp->sd_isc;
+
+	if (((ofl->ofl_flags & FLG_OF_RELOBJ) != 0) &&
+	    (isc != NULL) &&
+	    ((isc->is_flags & FLG_IS_COMDAT) != 0)) {
+		return (FALSE);
+	} else {
+		return (SYM_IS_HIDDEN(sdp) &&
+		    (ofl->ofl_flags & FLG_OF_PROCRED));
+	}
 }

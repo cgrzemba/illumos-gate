@@ -17,8 +17,13 @@
 #include "netinet/ip_compat.h"
 #include <sys/zone.h>
 
-#ifndef	SOLARIS
-# define SOLARIS (defined(sun) && (defined(__svr4__) || defined(__SVR4)))
+#ifdef	SOLARIS
+#undef	SOLARIS
+#endif
+#if (defined(sun) && (defined(__svr4__) || defined(__SVR4)))
+#define	SOLARIS	(1)
+#else
+#define	SOLARIS	(0)
 #endif
 
 #ifndef	__P
@@ -672,9 +677,6 @@ typedef	struct	frentry {
 
 #define	FR_NOLOGTAG	0
 
-#ifndef	offsetof
-#define	offsetof(t,m)	(size_t)((&((t *)0)->m))
-#endif
 #define	FR_CMPSIZ	(sizeof(struct frentry) - \
 			 offsetof(struct frentry, fr_func))
 
@@ -912,7 +914,7 @@ typedef	struct	ipflog	{
  * ipl is already a name used by something else.
  */
 #ifndef	IPL_NAME
-# if	SOLARIS
+# ifdef	SOLARIS
 #  define	IPL_NAME	"/dev/ipf"
 # else
 #  define	IPL_NAME	"/dev/ipl"

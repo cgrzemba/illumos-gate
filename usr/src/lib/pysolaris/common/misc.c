@@ -21,6 +21,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <Python.h>
@@ -28,12 +29,6 @@
 #include <libintl.h>
 #include <idmap.h>
 #include <directory.h>
-
-#ifdef __lint
-#define	dgettext(x, y) y
-#endif
-
-#define	_(s) dgettext(TEXT_DOMAIN, s)
 
 extern int sid_to_id(char *sid, boolean_t user, uid_t *id);
 
@@ -91,7 +86,7 @@ py_sid_to_name(PyObject *self, PyObject *args)
 		return (NULL);
 	}
 
-	ret = PyString_FromString(name);
+	ret = PyUnicode_FromString(name);
 	free(name);
 	return (ret);
 }
@@ -127,11 +122,37 @@ static PyMethodDef solarismethods[] = {
 	{NULL, NULL, 0, NULL}
 };
 
-void
+#if PY_MAJOR_VERSION >= 3
+static struct PyModuleDef solaris_module = {
+	PyModuleDef_HEAD_INIT,
+	"solaris.misc",
+	NULL,
+	-1,
+	solarismethods
+};
+#endif
+
+static PyObject *
+moduleinit()
+{
+#if PY_MAJOR_VERSION >= 3
+	return (PyModule_Create(&solaris_module));
+#else
+	(void) Py_InitModule("solaris.misc", solarismethods);
+	return (NULL);
+#endif
+}
+
+#if PY_MAJOR_VERSION >= 3
+PyMODINIT_FUNC
+PyInit_misc(void)
+{
+	return (moduleinit());
+}
+#else
+PyMODINIT_FUNC
 initmisc(void)
 {
-	char *noop;
-
-	noop = _("noop");
-	PyObject *solaris_misc = Py_InitModule("solaris.misc", solarismethods);
+	(void) moduleinit();
 }
+#endif

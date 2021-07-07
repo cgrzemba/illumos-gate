@@ -22,6 +22,9 @@
 #
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
+# Copyright 2015 Nexenta Systems, Inc. All rights reserved.
+# Copyright 2012 Joyent, Inc.  All rights reserved.
+# Copyright 2021 Oxide Computer Company
 #
 
 smf_present () {
@@ -71,6 +74,15 @@ smf_is_globalzone() {
 smf_is_nonglobalzone() {
 	[ "${SMF_ZONENAME:=`/sbin/zonename`}" != "global" ] && return 0
 	return 1
+}
+
+# smf_root_is_ramdisk
+#
+# Returns zero (success) if the system root file system is mounted from a
+# ramdisk, non-zero otherwise.
+#
+smf_root_is_ramdisk() {
+	/lib/svc/bin/rootisramdisk
 }
 
 # smf_configure_ip
@@ -134,7 +146,7 @@ smf_netstrategy () {
 
 	set -- `/sbin/netstrategy`
 	if [ $? -eq 0 ]; then
-		[ "$1" = "nfs" -o "$1" = "cachefs" ] && \
+		[ "$1" = "nfs" ] && \
 			_INIT_NET_IF="$2" export _INIT_NET_IF
 		_INIT_NET_STRATEGY="$3" export _INIT_NET_STRATEGY
 	else
@@ -153,7 +165,7 @@ smf_netstrategy () {
 #
 #   Example, send SIGTERM to contract 200:
 #
-#       smf_kill_contract 200 TERM 
+#       smf_kill_contract 200 TERM
 #
 #   Since killing a contract with pkill(1) is not atomic,
 #   smf_kill_contract will continue to send SIGNAL to CONTRACT
@@ -200,7 +212,7 @@ smf_kill_contract() {
 	# Return if WAIT is not set or is "0"
 	[ -z "$3" ] && return 0
 	[ "$3" -eq 0 ] && return 0
- 
+
 	# If contract does not empty, keep killing the contract to catch
 	# any child processes missed because they were forking
 	/usr/bin/pgrep -c $1 > /dev/null 2>&1
@@ -234,7 +246,12 @@ smf_kill_contract() {
 #   SMF_EXIT_ERR_OTHER, although not defined, encompasses all non-zero
 #   exit status values.
 #
+# The SMF_EXIT_NODAEMON exit status should be used when a method does not
+# need to run any persistent process. This indicates success, abandons the
+# contract, and allows dependencies to be met.
+#
 SMF_EXIT_OK=0
+SMF_EXIT_NODAEMON=94
 SMF_EXIT_ERR_FATAL=95
 SMF_EXIT_ERR_CONFIG=96
 SMF_EXIT_MON_DEGRADE=97

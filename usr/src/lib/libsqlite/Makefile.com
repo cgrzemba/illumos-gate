@@ -1,6 +1,10 @@
 #
 # Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
+# Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
+# Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
+# Copyright (c) 2019, Joyent, Inc.
+# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
 # Make the SO name unlikely to conflict with any other
@@ -49,9 +53,8 @@ include $(SRC)/lib/Makefile.rootfs
 SRCDIR = ../src
 TOOLDIR = ../tool
 $(DYNLIB) := LDLIBS += -lc
-LIBS = $(DYNLIB) $(LINTLIB) $(NATIVERELOC)
+LIBS = $(DYNLIB) $(NATIVERELOC)
 
-$(LINTLIB) :=	SRCS = ../$(LINTSRC)
 
 # generated sources
 GENSRC = opcodes.c parse.c
@@ -93,9 +96,12 @@ MYCPPFLAGS = -D_REENTRANT -DTHREADSAFE=1 -DHAVE_USLEEP=1 -I. -I.. -I$(SRCDIR)
 CPPFLAGS += $(MYCPPFLAGS)
 
 CERRWARN += -_gcc=-Wno-implicit-function-declaration
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-unused-function
 CERRWARN += -_gcc=-Wno-unused-label
+
+# not linted
+SMATCH=off
 
 MAPFILES = ../mapfile-sqlite
 
@@ -127,7 +133,7 @@ TESTSRC = \
 	$(SRCDIR)/test1.c	\
 	$(SRCDIR)/test2.c	\
 	$(SRCDIR)/test3.c	\
-	$(SRCDIR)/md5.c	
+	$(SRCDIR)/md5.c
 
 TESTOBJS = $(TESTSRC:$(SRCDIR)/%.c=%.o)
 
@@ -151,6 +157,8 @@ $(NATIVETARGETS) :=	LDLIBS = -lc
 
 $(OBJS) :=		CFLAGS += $(CTF_FLAGS)
 $(OBJS) :=		CTFCONVERT_POST = $(CTFCONVERT_O)
+$(NATIVEOBJS) :=	CFLAGS += $(CTF_FLAGS)
+$(NATIVEOBJS) :=	CTFCONVERT_POST = $(CTFCONVERT_O)
 
 TCLBASE = /usr/sfw
 TCLVERS = tcl8.3
@@ -192,21 +200,15 @@ ENCODING  = ISO8859
 all:		$(LIBS)
 install:	all \
 		$(ROOTLIBDIR)/$(DYNLIB) \
-		$(ROOTLIBDIR)/$(LINTLIB) \
 		$(ROOTLIBDIR)/$(NATIVERELOC)
 
-lint:
 
 all_h: $(GENHDR)
 
 $(ROOTLIBDIR)/$(NATIVERELOC)	:= FILEMODE= 644
-$(ROOTLINTDIR)/$(LINTLIB)	:= FILEMODE= 644
 
 $(ROOTLINK): $(ROOTLIBDIR) $(ROOTLIBDIR)/$(DYNLIB)
 	$(INS.liblink)
-
-$(ROOTLINTDIR)/%: ../%
-	$(INS.file)
 
 native: $(NATIVERELOC)
 
@@ -219,7 +221,7 @@ opcodes.h: $(SRCDIR)/vdbe.c
 	 echo '/* Automatically generated file.  Do not edit */' > $@ ; \
 	 grep '^case OP_' $(SRCDIR)/vdbe.c | \
 	    sed -e 's/://' | \
-	    awk '{printf "#define %-30s %3d\n", $$2, ++cnt}' >> $@
+	    $(AWK) '{printf "#define %-30s %3d\n", $$2, ++cnt}' >> $@
 
 opcodes.c: $(SRCDIR)/vdbe.c
 	@echo "Generating $@"; \
@@ -240,15 +242,22 @@ testfixture: FRC
 		exit 1; \
 	fi
 
+# Prevent Makefile.lib $(PICS) := from adding PICFLAGS
+# by building lemon in a recursive make invocation.
+# Otherwise, this target causes a rebuild every time after
+# the PICS target builds this one way, then lint the other.
 parse.h parse.c : $(SRCDIR)/parse.y $(TOOLDIR)/lemon.c $(TOOLDIR)/lempar.c
 	-$(RM) parse_tmp.y lempar.c
 	$(CP) $(SRCDIR)/parse.y parse_tmp.y
 	$(CP) $(TOOLDIR)/lempar.c lempar.c
-	$(NATIVECC) -o lemon $(TOOLDIR)/lemon.c
+	$(MAKE) lemon
 	./lemon parse_tmp.y
 	-$(RM) parse.c parse.h
 	$(CP) parse_tmp.h parse.h
 	$(CP) parse_tmp.c parse.c
+
+lemon: $(TOOLDIR)/lemon.c
+	$(NATIVECC) $(NATIVE_CFLAGS) -o $@ $(TOOLDIR)/lemon.c
 
 objs/%-native.o: $(SRCDIR)/%.c $(GENHDR)
 	$(COMPILE.c) -o $@ $<

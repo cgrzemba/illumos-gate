@@ -1,6 +1,6 @@
 /******************************************************************************
 
-  Copyright (c) 2001-2014, Intel Corporation 
+  Copyright (c) 2001-2015, Intel Corporation 
   All rights reserved.
   
   Redistribution and use in source and binary forms, with or without 
@@ -34,10 +34,6 @@
 
 #ifndef _E1000_HW_H_
 #define _E1000_HW_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include "e1000_osdep.h"
 #include "e1000_regs.h"
@@ -141,6 +137,34 @@ struct e1000_hw;
 #define E1000_DEV_ID_PCH_I218_V2		0x15A1
 #define E1000_DEV_ID_PCH_I218_LM3		0x15A2 /* Wildcat Point PCH */
 #define E1000_DEV_ID_PCH_I218_V3		0x15A3 /* Wildcat Point PCH */
+#define E1000_DEV_ID_PCH_SPT_I219_LM		0x156F /* Sunrise Point PCH */
+#define E1000_DEV_ID_PCH_SPT_I219_V		0x1570 /* Sunrise Point PCH */
+#define E1000_DEV_ID_PCH_SPT_I219_LM2		0x15B7 /* Sunrise Point-H PCH */
+#define E1000_DEV_ID_PCH_SPT_I219_V2		0x15B8 /* Sunrise Point-H PCH */
+#define E1000_DEV_ID_PCH_LBG_I219_LM3		0x15B9 /* LEWISBURG PCH */
+#define E1000_DEV_ID_PCH_SPT_I219_LM4		0x15D7
+#define E1000_DEV_ID_PCH_SPT_I219_V4		0x15D8
+#define E1000_DEV_ID_PCH_SPT_I219_LM5		0x15E3
+#define E1000_DEV_ID_PCH_SPT_I219_V5		0x15D6
+#define E1000_DEV_ID_PCH_CNP_I219_LM6		0x15BD
+#define E1000_DEV_ID_PCH_CNP_I219_V6		0x15BE
+#define E1000_DEV_ID_PCH_CNP_I219_LM7		0x15BB
+#define E1000_DEV_ID_PCH_CNP_I219_V7		0x15BC
+#define E1000_DEV_ID_PCH_ICP_I219_LM8		0x15DF
+#define E1000_DEV_ID_PCH_ICP_I219_V8		0x15E0
+#define E1000_DEV_ID_PCH_ICP_I219_LM9		0x15E1
+#define E1000_DEV_ID_PCH_ICP_I219_V9		0x15E2
+#define E1000_DEV_ID_PCH_CMP_I219_LM10		0x0D4E
+#define E1000_DEV_ID_PCH_CMP_I219_V10		0x0D4F
+#define E1000_DEV_ID_PCH_CMP_I219_LM11		0x0D4C
+#define E1000_DEV_ID_PCH_CMP_I219_V11		0x0D4D
+#define E1000_DEV_ID_PCH_CMP_I219_LM12		0x0D53
+#define E1000_DEV_ID_PCH_CMP_I219_V12		0x0D55
+#define E1000_DEV_ID_PCH_TGP_I219_LM13		0x15FB
+#define E1000_DEV_ID_PCH_TGP_I219_V13		0x15FC
+#define E1000_DEV_ID_PCH_TGP_I219_LM14		0x15F9
+#define E1000_DEV_ID_PCH_TGP_I219_V14		0x15FA
+#define E1000_DEV_ID_PCH_TGP_I219_LM15		0x15F4
 #define E1000_DEV_ID_82576			0x10C9
 #define E1000_DEV_ID_82576_FIBER		0x10E6
 #define E1000_DEV_ID_82576_SERDES		0x10E7
@@ -200,6 +224,13 @@ struct e1000_hw;
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN2	6
 #define E1000_ALT_MAC_ADDRESS_OFFSET_LAN3	9
 
+/*
+ * This enumeration represents all of the different kinds of MAC chips that are
+ * used by both the e1000g and igb drivers. The ordering here is important as
+ * certain classes of MACs are very similar, but have minor differences and so
+ * are compared based on the ordering here. Changing the order here should not
+ * be done arbitrarily.
+ */
 enum e1000_mac_type {
 	e1000_undefined = 0,
 	e1000_82542,
@@ -220,12 +251,27 @@ enum e1000_mac_type {
 	e1000_82574,
 	e1000_82583,
 	e1000_80003es2lan,
+	/*
+	 * The following MACs all share the ich8 style of hardware and are
+	 * implemented in ich8, though some are a little more different than
+	 * others. The pch_lpt, pch_spt, pch_cnp, and pch_tgp families are a bit
+	 * more different than the others and just have slight variants in
+	 * behavior between them. They are ordered based on release.
+	 */
 	e1000_ich8lan,
 	e1000_ich9lan,
 	e1000_ich10lan,
 	e1000_pchlan,
 	e1000_pch2lan,
 	e1000_pch_lpt,
+	e1000_pch_spt,
+	e1000_pch_cnp,
+	e1000_pch_tgp,
+	/*
+	 * After this point all MACs are used by the igb(7D) driver as opposed
+	 * to e1000g(7D). If a new MAC is specific to e1000g series of devices,
+	 * then it should be added above this.
+	 */
 	e1000_82575,
 	e1000_82576,
 	e1000_82580,
@@ -791,7 +837,7 @@ struct e1000_mac_info {
 	u16 uta_reg_count;
 
 	/* Maximum size of the MTA register table in all supported adapters */
-	#define MAX_MTA_REG 128
+#define MAX_MTA_REG 128
 	u32 mta_shadow[MAX_MTA_REG];
 	u16 rar_entry_count;
 
@@ -809,7 +855,7 @@ struct e1000_mac_info {
 	enum e1000_serdes_link_state serdes_link_state;
 	bool serdes_has_link;
 	bool tx_pkt_filtering;
-	u32 max_frame_size;
+	u32  max_frame_size;
 };
 
 struct e1000_phy_info {
@@ -960,9 +1006,13 @@ struct e1000_dev_spec_ich8lan {
 	E1000_MUTEX nvm_mutex;
 	E1000_MUTEX swflag_mutex;
 	bool nvm_k1_enabled;
+	bool disable_k1_off;
 	bool eee_disable;
 	u16 eee_lp_ability;
 	enum e1000_ulp_state ulp_state;
+	bool ulp_capability_disabled;
+	bool during_suspend_flow;
+	bool during_dpg_exit;
 };
 
 struct e1000_dev_spec_82575 {
@@ -1032,8 +1082,4 @@ s32  e1000_write_pcie_cap_reg(struct e1000_hw *hw, u32 reg, u16 *value);
 void e1000_read_pci_cfg(struct e1000_hw *hw, u32 reg, u16 *value);
 void e1000_write_pci_cfg(struct e1000_hw *hw, u32 reg, u16 *value);
 
-#ifdef __cplusplus
-}
 #endif
-
-#endif	/* _E1000_HW_H_ */

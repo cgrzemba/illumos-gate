@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2012 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  */
 
 /*
@@ -115,6 +115,9 @@ smbrdr_ctx_new(struct smb_ctx **ctx_p, char *server,
 	assert(domain != NULL);
 	assert(user != NULL);
 
+	if (server[0] == '\0')
+		return (NT_STATUS_INTERNAL_ERROR);
+
 	if ((err = smb_ctx_alloc(&ctx)) != 0)
 		return (NT_STATUS_NO_MEMORY);
 
@@ -155,7 +158,14 @@ smbrdr_ctx_new(struct smb_ctx **ctx_p, char *server,
 		goto errout;
 	}
 	if ((err = smb_ctx_get_ssn(ctx)) != 0) {
-		err = NT_STATUS_NETWORK_ACCESS_DENIED;
+		switch (err) {
+		case EAUTH:
+			err = NT_STATUS_NETWORK_ACCESS_DENIED;
+			break;
+		default:
+			err = NT_STATUS_BAD_NETWORK_PATH;
+			break;
+		}
 		goto errout;
 	}
 	if ((err = smb_ctx_get_tree(ctx)) != 0) {

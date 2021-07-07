@@ -21,7 +21,7 @@
 /*
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Copyright 2015 Joyent, Inc.
+ * Copyright 2018 Joyent, Inc.
  * Copyright 2013 Nexenta Systems, Inc. All rights reserved.
  */
 
@@ -42,157 +42,157 @@
  *
  * MAC
  *
- * 	This driver. It interfaces with device drivers and provides abstractions
- * 	that the rest of the system consumes. All data links -- things managed
- * 	with dladm(1M), are accessed through MAC.
+ *	This driver. It interfaces with device drivers and provides abstractions
+ *	that the rest of the system consumes. All data links -- things managed
+ *	with dladm(1M), are accessed through MAC.
  *
  * GLDv3 DEVICE DRIVER
  *
- * 	A GLDv3 device driver refers to a driver, both for pseudo-devices and
- * 	real devices, which implement the GLDv3 driver API. Common examples of
- * 	these are igb and ixgbe, which are drivers for various Intel networking
- * 	cards. These devices may or may not have various features, such as
- * 	hardware rings and checksum offloading. For MAC, a GLDv3 device is the
- * 	final point for the transmission of a packet and the starting point for
- * 	the receipt of a packet.
+ *	A GLDv3 device driver refers to a driver, both for pseudo-devices and
+ *	real devices, which implement the GLDv3 driver API. Common examples of
+ *	these are igb and ixgbe, which are drivers for various Intel networking
+ *	cards. These devices may or may not have various features, such as
+ *	hardware rings and checksum offloading. For MAC, a GLDv3 device is the
+ *	final point for the transmission of a packet and the starting point for
+ *	the receipt of a packet.
  *
  * FLOWS
  *
- * 	At a high level, a flow refers to a series of packets that are related.
- * 	Often times the term is used in the context of TCP to indicate a unique
- * 	TCP connection and the traffic over it. However, a flow can exist at
- * 	other levels of the system as well. MAC has a notion of a default flow
- * 	which is used for all unicast traffic addressed to the address of a MAC
- * 	device. For example, when a VNIC is created, a default flow is created
- * 	for the VNIC's MAC address. In addition, flows are created for broadcast
- * 	groups and a user may create a flow with flowadm(1M).
+ *	At a high level, a flow refers to a series of packets that are related.
+ *	Often times the term is used in the context of TCP to indicate a unique
+ *	TCP connection and the traffic over it. However, a flow can exist at
+ *	other levels of the system as well. MAC has a notion of a default flow
+ *	which is used for all unicast traffic addressed to the address of a MAC
+ *	device. For example, when a VNIC is created, a default flow is created
+ *	for the VNIC's MAC address. In addition, flows are created for broadcast
+ *	groups and a user may create a flow with flowadm(1M).
  *
  * CLASSIFICATION
  *
- * 	Classification refers to the notion of identifying an incoming frame
- * 	based on its destination address and optionally its source addresses and
- * 	doing different processing based on that information. Classification can
- * 	be done in both hardware and software. In general, we usually only
- * 	classify based on the layer two destination, eg. for Ethernet, the
- * 	destination MAC address.
+ *	Classification refers to the notion of identifying an incoming frame
+ *	based on its destination address and optionally its source addresses and
+ *	doing different processing based on that information. Classification can
+ *	be done in both hardware and software. In general, we usually only
+ *	classify based on the layer two destination, eg. for Ethernet, the
+ *	destination MAC address.
  *
- * 	The system also will do classification based on layer three and layer
- * 	four properties. This is used to support things like flowadm(1M), which
- * 	allows setting QoS and other properties on a per-flow basis.
+ *	The system also will do classification based on layer three and layer
+ *	four properties. This is used to support things like flowadm(1M), which
+ *	allows setting QoS and other properties on a per-flow basis.
  *
  * RING
  *
- * 	Conceptually, a ring represents a series of framed messages, often in a
- * 	contiguous chunk of memory that acts as a circular buffer. Rings come in
- * 	a couple of forms. Generally they are either a hardware construct (hw
- * 	ring) or they are a software construct (sw ring) maintained by MAC.
+ *	Conceptually, a ring represents a series of framed messages, often in a
+ *	contiguous chunk of memory that acts as a circular buffer. Rings come in
+ *	a couple of forms. Generally they are either a hardware construct (hw
+ *	ring) or they are a software construct (sw ring) maintained by MAC.
  *
  * HW RING
  *
- * 	A hardware ring is a set of resources provided by a GLDv3 device driver
- * 	(even if it is a pseudo-device). A hardware ring comes in two different
- * 	forms: receive (rx) rings and transmit (tx) rings. An rx hw ring is
- * 	something that has a unique DMA (direct memory access) region and
- * 	generally supports some form of classification (though it isn't always
- * 	used), as well as a means of generating an interrupt specific to that
- * 	ring. For example, the device may generate a specific MSI-X for a PCI
- * 	express device. A tx ring is similar, except that it is dedicated to
- * 	transmission. It may also be a vector for enabling features such as VLAN
- * 	tagging and large transmit offloading. It usually has its own dedicated
- * 	interrupts for transmit being completed.
+ *	A hardware ring is a set of resources provided by a GLDv3 device driver
+ *	(even if it is a pseudo-device). A hardware ring comes in two different
+ *	forms: receive (rx) rings and transmit (tx) rings. An rx hw ring is
+ *	something that has a unique DMA (direct memory access) region and
+ *	generally supports some form of classification (though it isn't always
+ *	used), as well as a means of generating an interrupt specific to that
+ *	ring. For example, the device may generate a specific MSI-X for a PCI
+ *	express device. A tx ring is similar, except that it is dedicated to
+ *	transmission. It may also be a vector for enabling features such as VLAN
+ *	tagging and large transmit offloading. It usually has its own dedicated
+ *	interrupts for transmit being completed.
  *
  * SW RING
  *
- * 	A software ring is a construction of MAC. It represents the same thing
- * 	that a hardware ring generally does, a collection of frames. However,
- * 	instead of being in a contiguous ring of memory, they're instead linked
- * 	by using the mblk_t's b_next pointer. Each frame may itself be multiple
- * 	mblk_t's linked together by the b_cont pointer. A software ring always
- * 	represents a collection of classified packets; however, it varies as to
- * 	whether it uses only layer two information, or a combination of that and
- * 	additional layer three and layer four data.
+ *	A software ring is a construction of MAC. It represents the same thing
+ *	that a hardware ring generally does, a collection of frames. However,
+ *	instead of being in a contiguous ring of memory, they're instead linked
+ *	by using the mblk_t's b_next pointer. Each frame may itself be multiple
+ *	mblk_t's linked together by the b_cont pointer. A software ring always
+ *	represents a collection of classified packets; however, it varies as to
+ *	whether it uses only layer two information, or a combination of that and
+ *	additional layer three and layer four data.
  *
  * FANOUT
  *
- * 	Fanout is the idea of spreading out the load of processing frames based
- * 	on the source and destination information contained in the layer two,
- * 	three, and four headers, such that the data can then be processed in
- * 	parallel using multiple hardware threads.
+ *	Fanout is the idea of spreading out the load of processing frames based
+ *	on the source and destination information contained in the layer two,
+ *	three, and four headers, such that the data can then be processed in
+ *	parallel using multiple hardware threads.
  *
- * 	A fanout algorithm hashes the headers and uses that to place different
- * 	flows into a bucket. The most important thing is that packets that are
- * 	in the same flow end up in the same bucket. If they do not, performance
- * 	can be adversely affected. Consider the case of TCP.  TCP severely
- * 	penalizes a connection if the data arrives out of order. If a given flow
- * 	is processed on different CPUs, then the data will appear out of order,
- * 	hence the invariant that fanout always hash a given flow to the same
- * 	bucket and thus get processed on the same CPU.
+ *	A fanout algorithm hashes the headers and uses that to place different
+ *	flows into a bucket. The most important thing is that packets that are
+ *	in the same flow end up in the same bucket. If they do not, performance
+ *	can be adversely affected. Consider the case of TCP.  TCP severely
+ *	penalizes a connection if the data arrives out of order. If a given flow
+ *	is processed on different CPUs, then the data will appear out of order,
+ *	hence the invariant that fanout always hash a given flow to the same
+ *	bucket and thus get processed on the same CPU.
  *
  * RECEIVE SIDE SCALING (RSS)
  *
  *
- * 	Receive side scaling is a term that isn't common in illumos, but is used
- * 	by vendors and was popularized by Microsoft. It refers to the idea of
- * 	spreading the incoming receive load out across multiple interrupts which
- * 	can be directed to different CPUs. This allows a device to leverage
- * 	hardware rings even when it doesn't support hardware classification. The
- * 	hardware uses an algorithm to perform fanout that ensures the flow
- * 	invariant is maintained.
+ *	Receive side scaling is a term that isn't common in illumos, but is used
+ *	by vendors and was popularized by Microsoft. It refers to the idea of
+ *	spreading the incoming receive load out across multiple interrupts which
+ *	can be directed to different CPUs. This allows a device to leverage
+ *	hardware rings even when it doesn't support hardware classification. The
+ *	hardware uses an algorithm to perform fanout that ensures the flow
+ *	invariant is maintained.
  *
  * SOFT RING SET
  *
- * 	A soft ring set, commonly abbreviated SRS, is a collection of rings and
- * 	is used for both transmitting and receiving. It is maintained in the
- * 	structure mac_soft_ring_set_t. A soft ring set is usually associated
- * 	with flows, and coordinates both the use of hardware and software rings.
- * 	Because the use of hardware rings can change as devices such as VNICs
- * 	come and go, we always ensure that the set has software classification
- * 	rules that correspond to the hardware classification rules from rings.
+ *	A soft ring set, commonly abbreviated SRS, is a collection of rings and
+ *	is used for both transmitting and receiving. It is maintained in the
+ *	structure mac_soft_ring_set_t. A soft ring set is usually associated
+ *	with flows, and coordinates both the use of hardware and software rings.
+ *	Because the use of hardware rings can change as devices such as VNICs
+ *	come and go, we always ensure that the set has software classification
+ *	rules that correspond to the hardware classification rules from rings.
  *
- * 	Soft ring sets are also used for the enforcement of various QoS
- * 	properties. For example, if a bandwidth limit has been placed on a
- * 	specific flow or device, then that will be enforced by the soft ring
- * 	set.
+ *	Soft ring sets are also used for the enforcement of various QoS
+ *	properties. For example, if a bandwidth limit has been placed on a
+ *	specific flow or device, then that will be enforced by the soft ring
+ *	set.
  *
  * SERVICE ATTACHMENT POINT (SAP)
  *
- * 	The service attachment point is a DLPI (Data Link Provider Interface)
- * 	concept; however, it comes up quite often in MAC. Most MAC devices speak
- * 	a protocol that has some notion of different channels or message type
- * 	identifiers. For example, Ethernet defines an EtherType which is a part
- * 	of the Ethernet header and defines the particular protocol of the data
- * 	payload. If the EtherType is set to 0x0800, then it defines that the
- * 	contents of that Ethernet frame is IPv4 traffic. For Ethernet, the
- * 	EtherType is the SAP.
+ *	The service attachment point is a DLPI (Data Link Provider Interface)
+ *	concept; however, it comes up quite often in MAC. Most MAC devices speak
+ *	a protocol that has some notion of different channels or message type
+ *	identifiers. For example, Ethernet defines an EtherType which is a part
+ *	of the Ethernet header and defines the particular protocol of the data
+ *	payload. If the EtherType is set to 0x0800, then it defines that the
+ *	contents of that Ethernet frame is IPv4 traffic. For Ethernet, the
+ *	EtherType is the SAP.
  *
- * 	In DLPI, a given consumer attaches to a specific SAP. In illumos, the ip
- * 	and arp drivers attach to the EtherTypes for IPv4, IPv6, and ARP. Using
- * 	libdlpi(3LIB) user software can attach to arbitrary SAPs. With the
- * 	exception of 802.1Q VLAN tagged traffic, MAC itself does not directly
- * 	consume the SAP; however, it uses that information as part of hashing
- * 	and it may be used as part of the construction of flows.
+ *	In DLPI, a given consumer attaches to a specific SAP. In illumos, the ip
+ *	and arp drivers attach to the EtherTypes for IPv4, IPv6, and ARP. Using
+ *	libdlpi(3LIB) user software can attach to arbitrary SAPs. With the
+ *	exception of 802.1Q VLAN tagged traffic, MAC itself does not directly
+ *	consume the SAP; however, it uses that information as part of hashing
+ *	and it may be used as part of the construction of flows.
  *
  * PRIMARY MAC CLIENT
  *
- * 	The primary mac client refers to a mac client whose unicast address
- * 	matches the address of the device itself. For example, if the system has
- * 	instance of the e1000g driver such as e1000g0, e1000g1, etc., the
- * 	primary mac client is the one named after the device itself. VNICs that
- * 	are created on top of such devices are not the primary client.
+ *	The primary mac client refers to a mac client whose unicast address
+ *	matches the address of the device itself. For example, if the system has
+ *	instance of the e1000g driver such as e1000g0, e1000g1, etc., the
+ *	primary mac client is the one named after the device itself. VNICs that
+ *	are created on top of such devices are not the primary client.
  *
  * TRANSMIT DESCRIPTORS
  *
- * 	Transmit descriptors are a resource that most GLDv3 device drivers have.
- * 	Generally, a GLDv3 device driver takes a frame that's meant to be output
- * 	and puts a copy of it into a region of memory. Each region of memory
- * 	usually has an associated descriptor that the device uses to manage
- * 	properties of the frames. Devices have a limited number of such
- * 	descriptors. They get reclaimed once the device finishes putting the
- * 	frame on the wire.
+ *	Transmit descriptors are a resource that most GLDv3 device drivers have.
+ *	Generally, a GLDv3 device driver takes a frame that's meant to be output
+ *	and puts a copy of it into a region of memory. Each region of memory
+ *	usually has an associated descriptor that the device uses to manage
+ *	properties of the frames. Devices have a limited number of such
+ *	descriptors. They get reclaimed once the device finishes putting the
+ *	frame on the wire.
  *
- * 	If the driver runs out of transmit descriptors, for example, the OS is
- * 	generating more frames than it can put on the wire, then it will return
- * 	them back to the MAC layer.
+ *	If the driver runs out of transmit descriptors, for example, the OS is
+ *	generating more frames than it can put on the wire, then it will return
+ *	them back to the MAC layer.
  *
  * ---------------------------------
  * Rings, Classification, and Fanout
@@ -300,9 +300,8 @@
  *
  * Otherwise, all fanout is performed by software. MAC divides incoming frames
  * into one of three buckets -- IPv4 TCP traffic, IPv4 UDP traffic, and
- * everything else. Note, VLAN tagged traffic is considered other, regardless of
- * the interior EtherType. Regardless of the type of fanout, these three
- * categories or buckets are always used.
+ * everything else. Regardless of the type of fanout, these three categories
+ * or buckets are always used.
  *
  * The difference between protocol level fanout and full software ring protocol
  * fanout is the number of software rings that end up getting created. The
@@ -969,6 +968,7 @@
 
 #include <sys/types.h>
 #include <sys/callb.h>
+#include <sys/pattr.h>
 #include <sys/sdt.h>
 #include <sys/strsubr.h>
 #include <sys/strsun.h>
@@ -1194,7 +1194,7 @@ boolean_t mac_latency_optimize = B_TRUE;
 #define	MAC_SRS_WORKER_POLLING_ON(mac_srs) {				\
 	ASSERT(MUTEX_HELD(&(mac_srs)->srs_lock));			\
 	if (((mac_srs)->srs_state &					\
-	    (SRS_POLLING_CAPAB|SRS_WORKER|SRS_POLLING)) == 		\
+	    (SRS_POLLING_CAPAB|SRS_WORKER|SRS_POLLING)) ==		\
 	    (SRS_POLLING_CAPAB|SRS_WORKER)) {				\
 		(mac_srs)->srs_state |= SRS_POLLING;			\
 		(void) mac_hwring_disable_intr((mac_ring_handle_t)	\
@@ -1217,11 +1217,11 @@ boolean_t mac_latency_optimize = B_TRUE;
 									\
 	ASSERT(MUTEX_HELD(&(mac_srs)->srs_lock));			\
 	srs_rx->sr_poll_thr_sig++;					\
-	if (((mac_srs)->srs_state & 					\
+	if (((mac_srs)->srs_state &					\
 	    (SRS_POLLING_CAPAB|SRS_WORKER|SRS_GET_PKTS)) ==		\
 		(SRS_WORKER|SRS_POLLING_CAPAB)) {			\
 		(mac_srs)->srs_state |= SRS_GET_PKTS;			\
-		cv_signal(&(mac_srs)->srs_cv);   			\
+		cv_signal(&(mac_srs)->srs_cv);				\
 	} else {							\
 		srs_rx->sr_poll_thr_busy++;				\
 	}								\
@@ -1241,7 +1241,7 @@ boolean_t mac_latency_optimize = B_TRUE;
 	clock_t now = ddi_get_lbolt();					\
 	if ((mac_srs)->srs_bw->mac_bw_curr_time != now) {		\
 		(mac_srs)->srs_bw->mac_bw_curr_time = now;		\
-		(mac_srs)->srs_bw->mac_bw_used = 0;	       		\
+		(mac_srs)->srs_bw->mac_bw_used = 0;			\
 		if ((mac_srs)->srs_bw->mac_bw_state & SRS_BW_ENFORCED)	\
 			(mac_srs)->srs_bw->mac_bw_state &= ~SRS_BW_ENFORCED; \
 	}								\
@@ -1328,7 +1328,7 @@ int mac_srs_worker_wakeup_ticks = 0;
 			 * b_prev may be set to the fanout hint		\
 			 * hence can't use freemsg directly		\
 			 */						\
-			mac_pkt_drop(NULL, NULL, mp_chain, B_FALSE);	\
+			mac_drop_chain(mp_chain, "SRS Tx max queue");	\
 			DTRACE_PROBE1(tx_queued_hiwat,			\
 			    mac_soft_ring_set_t *, srs);		\
 			enqueue = 0;					\
@@ -1347,11 +1347,11 @@ int mac_srs_worker_wakeup_ticks = 0;
 	if (!(srs->srs_type & SRST_TX))					\
 		mutex_exit(&srs->srs_bw->mac_bw_lock);
 
-#define	MAC_TX_SRS_DROP_MESSAGE(srs, mp, cookie) {		\
-	mac_pkt_drop(NULL, NULL, mp, B_FALSE);			\
+#define	MAC_TX_SRS_DROP_MESSAGE(srs, chain, cookie, s) {	\
+	mac_drop_chain((chain), (s));				\
 	/* increment freed stats */				\
-	mac_srs->srs_tx.st_stat.mts_sdrops++;			\
-	cookie = (mac_tx_cookie_t)srs;				\
+	(srs)->srs_tx.st_stat.mts_sdrops++;			\
+	(cookie) = (mac_tx_cookie_t)(srs);			\
 }
 
 #define	MAC_TX_SET_NO_ENQUEUE(srs, mp_chain, ret_mp, cookie) {		\
@@ -1413,12 +1413,12 @@ mac_srs_fire(void *arg)
 	mac_soft_ring_set_t *mac_srs = (mac_soft_ring_set_t *)arg;
 
 	mutex_enter(&mac_srs->srs_lock);
-	if (mac_srs->srs_tid == 0) {
+	if (mac_srs->srs_tid == NULL) {
 		mutex_exit(&mac_srs->srs_lock);
 		return;
 	}
 
-	mac_srs->srs_tid = 0;
+	mac_srs->srs_tid = NULL;
 	if (!(mac_srs->srs_state & SRS_PROC))
 		cv_signal(&mac_srs->srs_async);
 
@@ -1475,16 +1475,15 @@ enum pkt_type {
 #define	PORTS_SIZE 4
 
 /*
- * mac_rx_srs_proto_fanout
- *
- * This routine delivers packets destined to an SRS into one of the
+ * This routine delivers packets destined for an SRS into one of the
  * protocol soft rings.
  *
- * Given a chain of packets we need to split it up into multiple sub chains
- * destined into TCP, UDP or OTH soft ring. Instead of entering
- * the soft ring one packet at a time, we want to enter it in the form of a
- * chain otherwise we get this start/stop behaviour where the worker thread
- * goes to sleep and then next packets comes in forcing it to wake up etc.
+ * Given a chain of packets we need to split it up into multiple sub
+ * chains: TCP, UDP or OTH soft ring. Instead of entering the soft
+ * ring one packet at a time, we want to enter it in the form of a
+ * chain otherwise we get this start/stop behaviour where the worker
+ * thread goes to sleep and then next packet comes in forcing it to
+ * wake up.
  */
 static void
 mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
@@ -1523,9 +1522,9 @@ mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 	    mac_srs->srs_ring->mr_classify_type == MAC_HW_CLASSIFIER;
 
 	/*
-	 * Special clients (eg. VLAN, non ether, etc) need DLS
-	 * processing in the Rx path. SRST_DLS_BYPASS will be clear for
-	 * such SRSs. Another way of disabling bypass is to set the
+	 * Some clients, such as non-ethernet, need DLS processing in
+	 * the Rx path. Such clients clear the SRST_DLS_BYPASS flag.
+	 * DLS bypass may also be disabled via the
 	 * MCIS_RX_BYPASS_DISABLE flag.
 	 */
 	dls_bypass = ((mac_srs->srs_type & SRST_DLS_BYPASS) != 0) &&
@@ -1537,10 +1536,11 @@ mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 	bzero(sz, MAX_SR_TYPES * sizeof (size_t));
 
 	/*
-	 * We got a chain from SRS that we need to send to the soft rings.
-	 * Since squeues for TCP & IPv4 sap poll their soft rings (for
-	 * performance reasons), we need to separate out v4_tcp, v4_udp
-	 * and the rest goes in other.
+	 * We have a chain from SRS that we need to split across the
+	 * soft rings. The squeues for the TCP and IPv4 SAPs use their
+	 * own soft rings to allow polling from the squeue. The rest of
+	 * the packets are delivered on the OTH soft ring which cannot
+	 * be polled.
 	 */
 	while (head != NULL) {
 		mp = head;
@@ -1568,9 +1568,14 @@ mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 				evhp = (struct ether_vlan_header *)mp->b_rptr;
 				sap = ntohs(evhp->ether_type);
 				hdrsize = sizeof (struct ether_vlan_header);
+
 				/*
-				 * Check if the VID of the packet, if any,
-				 * belongs to this client.
+				 * Check if the VID of the packet, if
+				 * any, belongs to this client.
+				 * Technically, if this packet came up
+				 * via a HW classified ring then we
+				 * don't need to perform this check.
+				 * Perhaps a future optimization.
 				 */
 				if (!mac_client_check_flow_vid(mcip,
 				    VLAN_ID(ntohs(evhp->ether_tci)))) {
@@ -1635,7 +1640,6 @@ mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 		 * performance and may bypass DLS. All other cases go through
 		 * the 'OTH' type path without DLS bypass.
 		 */
-
 		ipha = (ipha_t *)(mp->b_rptr + hdrsize);
 		if ((type != OTH) && MBLK_RX_FANOUT_SLOWPATH(mp, ipha))
 			type = OTH;
@@ -1647,11 +1651,13 @@ mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 		}
 
 		ASSERT(type == UNDEF);
+
 		/*
-		 * We look for at least 4 bytes past the IP header to get
-		 * the port information. If we get an IP fragment, we don't
-		 * have the port information, and we use just the protocol
-		 * information.
+		 * Determine the type from the IP protocol value. If
+		 * classified as TCP or UDP, then update the read
+		 * pointer to the beginning of the IP header.
+		 * Otherwise leave the message as is for further
+		 * processing by DLS.
 		 */
 		switch (ipha->ipha_protocol) {
 		case IPPROTO_TCP:
@@ -1695,11 +1701,10 @@ mac_rx_srs_proto_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 int	fanout_unaligned = 0;
 
 /*
- * mac_rx_srs_long_fanout
- *
- * The fanout routine for VLANs, and for anything else that isn't performing
- * explicit dls bypass.  Returns -1 on an error (drop the packet due to a
- * malformed packet), 0 on success, with values written in *indx and *type.
+ * The fanout routine for any clients with DLS bypass disabled or for
+ * traffic classified as "other". Returns -1 on an error (drop the
+ * packet due to a malformed packet), 0 on success, with values
+ * written in *indx and *type.
  */
 static int
 mac_rx_srs_long_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *mp,
@@ -1789,8 +1794,11 @@ mac_rx_srs_long_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *mp,
 		 * when mac_ip_hdr_length_v6() fails because of malformed
 		 * packets or because mblks need to be concatenated using
 		 * pullupmsg().
+		 *
+		 * Perform a version check to prevent parsing weirdness...
 		 */
-		if (!mac_ip_hdr_length_v6(ip6h, mp->b_wptr, &hdr_len, &nexthdr,
+		if (IPH_HDR_VERSION(ip6h) != IPV6_VERSION ||
+		    !mac_ip_hdr_length_v6(ip6h, mp->b_wptr, &hdr_len, &nexthdr,
 		    NULL)) {
 			goto src_dst_based_fanout;
 		}
@@ -1862,16 +1870,15 @@ src_dst_based_fanout:
 }
 
 /*
- * mac_rx_srs_fanout
- *
- * This routine delivers packets destined to an SRS into a soft ring member
+ * This routine delivers packets destined for an SRS into a soft ring member
  * of the set.
  *
- * Given a chain of packets we need to split it up into multiple sub chains
- * destined for one of the TCP, UDP or OTH soft rings. Instead of entering
- * the soft ring one packet at a time, we want to enter it in the form of a
- * chain otherwise we get this start/stop behaviour where the worker thread
- * goes to sleep and then next packets comes in forcing it to wake up etc.
+ * Given a chain of packets we need to split it up into multiple sub
+ * chains: TCP, UDP or OTH soft ring. Instead of entering the soft
+ * ring one packet at a time, we want to enter it in the form of a
+ * chain otherwise we get this start/stop behaviour where the worker
+ * thread goes to sleep and then next packet comes in forcing it to
+ * wake up.
  *
  * Note:
  * Since we know what is the maximum fanout possible, we create a 2D array
@@ -1932,10 +1939,11 @@ mac_rx_srs_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 	    mac_srs->srs_ring->mr_classify_type == MAC_HW_CLASSIFIER;
 
 	/*
-	 * Special clients (eg. VLAN, non ether, etc) need DLS
-	 * processing in the Rx path. SRST_DLS_BYPASS will be clear for
-	 * such SRSs. Another way of disabling bypass is to set the
-	 * MCIS_RX_BYPASS_DISABLE flag.
+	 * Some clients, such as non Ethernet, need DLS processing in
+	 * the Rx path. Such clients clear the SRST_DLS_BYPASS flag.
+	 * DLS bypass may also be disabled via the
+	 * MCIS_RX_BYPASS_DISABLE flag, but this is only consumed by
+	 * sun4v vsw currently.
 	 */
 	dls_bypass = ((mac_srs->srs_type & SRST_DLS_BYPASS) != 0) &&
 	    ((mcip->mci_state_flags & MCIS_RX_BYPASS_DISABLE) == 0);
@@ -1957,7 +1965,7 @@ mac_rx_srs_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 
 	/*
 	 * We got a chain from SRS that we need to send to the soft rings.
-	 * Since squeues for TCP & IPv4 sap poll their soft rings (for
+	 * Since squeues for TCP & IPv4 SAP poll their soft rings (for
 	 * performance reasons), we need to separate out v4_tcp, v4_udp
 	 * and the rest goes in other.
 	 */
@@ -1987,9 +1995,14 @@ mac_rx_srs_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 				evhp = (struct ether_vlan_header *)mp->b_rptr;
 				sap = ntohs(evhp->ether_type);
 				hdrsize = sizeof (struct ether_vlan_header);
+
 				/*
-				 * Check if the VID of the packet, if any,
-				 * belongs to this client.
+				 * Check if the VID of the packet, if
+				 * any, belongs to this client.
+				 * Technically, if this packet came up
+				 * via a HW classified ring then we
+				 * don't need to perform this check.
+				 * Perhaps a future optimization.
 				 */
 				if (!mac_client_check_flow_vid(mcip,
 				    VLAN_ID(ntohs(evhp->ether_tci)))) {
@@ -2028,7 +2041,6 @@ mac_rx_srs_fanout(mac_soft_ring_set_t *mac_srs, mblk_t *head)
 			    sz[type][indx], sz1, mp);
 			continue;
 		}
-
 
 		/*
 		 * If we are using the default Rx ring where H/W or S/W
@@ -2204,13 +2216,13 @@ ssize_t	max_bytes_to_pickup = SRS_BYTES_TO_PICKUP;
 void
 mac_rx_srs_poll_ring(mac_soft_ring_set_t *mac_srs)
 {
-	kmutex_t 		*lock = &mac_srs->srs_lock;
-	kcondvar_t 		*async = &mac_srs->srs_cv;
+	kmutex_t		*lock = &mac_srs->srs_lock;
+	kcondvar_t		*async = &mac_srs->srs_cv;
 	mac_srs_rx_t		*srs_rx = &mac_srs->srs_rx;
-	mblk_t 			*head, *tail, *mp;
-	callb_cpr_t 		cprinfo;
-	ssize_t 		bytes_to_pickup;
-	size_t 			sz;
+	mblk_t			*head, *tail, *mp;
+	callb_cpr_t		cprinfo;
+	ssize_t			bytes_to_pickup;
+	size_t			sz;
 	int			count;
 	mac_client_impl_t	*smcip;
 
@@ -2310,7 +2322,7 @@ check_again:
 				if (smcip->mci_mip->mi_promisc_list != NULL) {
 					mutex_exit(lock);
 					mac_promisc_dispatch(smcip->mci_mip,
-					    head, NULL);
+					    head, NULL, B_FALSE);
 					mutex_enter(lock);
 				}
 			}
@@ -2477,12 +2489,12 @@ static mblk_t *
 mac_srs_pick_chain(mac_soft_ring_set_t *mac_srs, mblk_t **chain_tail,
     size_t *chain_sz, int *chain_cnt)
 {
-	mblk_t 			*head = NULL;
-	mblk_t 			*tail = NULL;
+	mblk_t			*head = NULL;
+	mblk_t			*tail = NULL;
 	size_t			sz;
-	size_t 			tsz = 0;
+	size_t			tsz = 0;
 	int			cnt = 0;
-	mblk_t 			*mp;
+	mblk_t			*mp;
 
 	ASSERT(MUTEX_HELD(&mac_srs->srs_lock));
 	mutex_enter(&mac_srs->srs_bw->mac_bw_lock);
@@ -2563,9 +2575,9 @@ mac_srs_pick_chain(mac_soft_ring_set_t *mac_srs, mblk_t **chain_tail,
 void
 mac_rx_srs_drain(mac_soft_ring_set_t *mac_srs, uint_t proc_type)
 {
-	mblk_t 			*head;
+	mblk_t			*head;
 	mblk_t			*tail;
-	timeout_id_t 		tid;
+	timeout_id_t		tid;
 	int			cnt = 0;
 	mac_client_impl_t	*mcip = mac_srs->srs_mcip;
 	mac_srs_rx_t		*srs_rx = &mac_srs->srs_rx;
@@ -2613,11 +2625,10 @@ again:
 	ASSERT(head != NULL);
 	ASSERT(tail != NULL);
 
-	if ((tid = mac_srs->srs_tid) != 0)
-		mac_srs->srs_tid = 0;
+	if ((tid = mac_srs->srs_tid) != NULL)
+		mac_srs->srs_tid = NULL;
 
 	mac_srs->srs_state |= (SRS_PROC|proc_type);
-
 
 	/*
 	 * mcip is NULL for broadcast and multicast flows. The promisc
@@ -2632,16 +2643,14 @@ again:
 		}
 		if (MAC_PROTECT_ENABLED(mcip, MPT_IPNOSPOOF)) {
 			mutex_exit(&mac_srs->srs_lock);
-			mac_protect_intercept_dhcp(mcip, head);
+			mac_protect_intercept_dynamic(mcip, head);
 			mutex_enter(&mac_srs->srs_lock);
 		}
 	}
 
 	/*
-	 * Check if SRS itself is doing the processing
-	 * This direct path does not apply when subflows are present. In this
-	 * case, packets need to be dispatched to a soft ring according to the
-	 * flow's bandwidth and other resources contraints.
+	 * Check if SRS itself is doing the processing. This direct
+	 * path applies only when subflows are present.
 	 */
 	if (mac_srs->srs_type & SRST_NO_SOFT_RINGS) {
 		mac_direct_rx_t		proc;
@@ -2660,9 +2669,9 @@ again:
 
 		mac_srs->srs_state |= SRS_CLIENT_PROC;
 		mutex_exit(&mac_srs->srs_lock);
-		if (tid != 0) {
+		if (tid != NULL) {
 			(void) untimeout(tid);
-			tid = 0;
+			tid = NULL;
 		}
 
 		proc(arg1, arg2, head, NULL);
@@ -2678,9 +2687,9 @@ again:
 	} else {
 		/* Some kind of softrings based fanout is required */
 		mutex_exit(&mac_srs->srs_lock);
-		if (tid != 0) {
+		if (tid != NULL) {
 			(void) untimeout(tid);
-			tid = 0;
+			tid = NULL;
 		}
 
 		/*
@@ -2803,9 +2812,9 @@ out:
 void
 mac_rx_srs_drain_bw(mac_soft_ring_set_t *mac_srs, uint_t proc_type)
 {
-	mblk_t 			*head;
+	mblk_t			*head;
 	mblk_t			*tail;
-	timeout_id_t 		tid;
+	timeout_id_t		tid;
 	size_t			sz = 0;
 	int			cnt = 0;
 	mac_client_impl_t	*mcip = mac_srs->srs_mcip;
@@ -2885,14 +2894,14 @@ again:
 		mac_srs->srs_bw->mac_bw_sz -= sz;
 		mac_srs->srs_bw->mac_bw_drop_bytes += sz;
 		mutex_exit(&mac_srs->srs_bw->mac_bw_lock);
-		mac_pkt_drop(NULL, NULL, head, B_FALSE);
+		mac_drop_chain(head, "Rx no bandwidth");
 		goto leave_poll;
 	} else {
 		mutex_exit(&mac_srs->srs_bw->mac_bw_lock);
 	}
 
-	if ((tid = mac_srs->srs_tid) != 0)
-		mac_srs->srs_tid = 0;
+	if ((tid = mac_srs->srs_tid) != NULL)
+		mac_srs->srs_tid = NULL;
 
 	mac_srs->srs_state |= (SRS_PROC|proc_type);
 	MAC_SRS_WORKER_POLLING_ON(mac_srs);
@@ -2910,7 +2919,7 @@ again:
 		}
 		if (MAC_PROTECT_ENABLED(mcip, MPT_IPNOSPOOF)) {
 			mutex_exit(&mac_srs->srs_lock);
-			mac_protect_intercept_dhcp(mcip, head);
+			mac_protect_intercept_dynamic(mcip, head);
 			mutex_enter(&mac_srs->srs_lock);
 		}
 	}
@@ -2938,9 +2947,9 @@ again:
 
 		mac_srs->srs_state |= SRS_CLIENT_PROC;
 		mutex_exit(&mac_srs->srs_lock);
-		if (tid != 0) {
+		if (tid != NULL) {
 			(void) untimeout(tid);
-			tid = 0;
+			tid = NULL;
 		}
 
 		proc(arg1, arg2, head, NULL);
@@ -2958,9 +2967,9 @@ again:
 	} else {
 		/* Some kind of softrings based fanout is required */
 		mutex_exit(&mac_srs->srs_lock);
-		if (tid != 0) {
+		if (tid != NULL) {
 			(void) untimeout(tid);
-			tid = 0;
+			tid = NULL;
 		}
 
 		/*
@@ -3070,8 +3079,8 @@ leave_poll:
 void
 mac_srs_worker(mac_soft_ring_set_t *mac_srs)
 {
-	kmutex_t 		*lock = &mac_srs->srs_lock;
-	kcondvar_t 		*async = &mac_srs->srs_async;
+	kmutex_t		*lock = &mac_srs->srs_lock;
+	kcondvar_t		*async = &mac_srs->srs_async;
 	callb_cpr_t		cprinfo;
 	boolean_t		bw_ctl_flag;
 
@@ -3267,9 +3276,10 @@ mac_rx_srs_subflow_process(void *arg, mac_resource_handle_t srs,
 }
 
 /*
- * mac_rx_srs_process
- *
- * Receive side routine called from the interrupt path.
+ * MAC SRS receive side routine. If the data is coming from the
+ * network (i.e. from a NIC) then this is called in interrupt context.
+ * If the data is coming from a local sender (e.g. mac_tx_send() or
+ * bridge_forward()) then this is not called in interrupt context.
  *
  * loopback is set to force a context switch on the loopback
  * path between MAC clients.
@@ -3329,7 +3339,7 @@ mac_rx_srs_process(void *arg, mac_resource_handle_t srs, mblk_t *mp_chain,
 			mac_bw->mac_bw_drop_bytes += sz;
 			mutex_exit(&mac_bw->mac_bw_lock);
 			mutex_exit(&mac_srs->srs_lock);
-			mac_pkt_drop(NULL, NULL, mp_chain, B_FALSE);
+			mac_drop_chain(mp_chain, "Rx no bandwidth");
 			return;
 		} else {
 			if ((mac_bw->mac_bw_sz + sz) <=
@@ -3442,7 +3452,7 @@ mac_tx_cookie_t
 mac_tx_srs_no_desc(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
     uint16_t flag, mblk_t **ret_mp)
 {
-	mac_tx_cookie_t cookie = NULL;
+	mac_tx_cookie_t cookie = 0;
 	mac_srs_tx_t *srs_tx = &mac_srs->srs_tx;
 	boolean_t wakeup_worker = B_TRUE;
 	uint32_t tx_mode = srs_tx->st_mode;
@@ -3451,7 +3461,8 @@ mac_tx_srs_no_desc(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 
 	ASSERT(tx_mode == SRS_TX_DEFAULT || tx_mode == SRS_TX_BW);
 	if (flag & MAC_DROP_ON_NO_DESC) {
-		MAC_TX_SRS_DROP_MESSAGE(mac_srs, mp_chain, cookie);
+		MAC_TX_SRS_DROP_MESSAGE(mac_srs, mp_chain, cookie,
+		    "Tx no desc");
 	} else {
 		if (mac_srs->srs_first != NULL)
 			wakeup_worker = B_FALSE;
@@ -3498,7 +3509,7 @@ static mac_tx_cookie_t
 mac_tx_srs_enqueue(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
     uint16_t flag, uintptr_t fanout_hint, mblk_t **ret_mp)
 {
-	mac_tx_cookie_t cookie = NULL;
+	mac_tx_cookie_t cookie = 0;
 	int cnt, sz;
 	mblk_t *tail;
 	boolean_t wakeup_worker = B_TRUE;
@@ -3514,7 +3525,8 @@ mac_tx_srs_enqueue(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 	MAC_COUNT_CHAIN(mac_srs, mp_chain, tail, cnt, sz);
 	if (flag & MAC_DROP_ON_NO_DESC) {
 		if (mac_srs->srs_count > mac_srs->srs_tx.st_hiwat) {
-			MAC_TX_SRS_DROP_MESSAGE(mac_srs, mp_chain, cookie);
+			MAC_TX_SRS_DROP_MESSAGE(mac_srs, mp_chain, cookie,
+			    "Tx SRS hiwat");
 		} else {
 			MAC_TX_SRS_ENQUEUE_CHAIN(mac_srs,
 			    mp_chain, tail, cnt, sz);
@@ -3640,7 +3652,7 @@ mac_tx_single_ring_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 {
 	mac_srs_tx_t		*srs_tx = &mac_srs->srs_tx;
 	mac_tx_stats_t		stats;
-	mac_tx_cookie_t		cookie = NULL;
+	mac_tx_cookie_t		cookie = 0;
 
 	ASSERT(srs_tx->st_mode == SRS_TX_DEFAULT);
 
@@ -3689,7 +3701,7 @@ mac_tx_single_ring_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 	}
 	SRS_TX_STATS_UPDATE(mac_srs, &stats);
 
-	return (NULL);
+	return (0);
 }
 
 /*
@@ -3706,7 +3718,7 @@ mac_tx_serializer_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
     uintptr_t fanout_hint, uint16_t flag, mblk_t **ret_mp)
 {
 	mac_tx_stats_t		stats;
-	mac_tx_cookie_t		cookie = NULL;
+	mac_tx_cookie_t		cookie = 0;
 	mac_srs_tx_t		*srs_tx = &mac_srs->srs_tx;
 
 	/* Single ring, serialize below */
@@ -3722,7 +3734,7 @@ mac_tx_serializer_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 		 * is set and return mblks after TX_HIWAT is set.
 		 */
 		cookie = mac_tx_srs_enqueue(mac_srs, mp_chain,
-		    flag, NULL, ret_mp);
+		    flag, 0, ret_mp);
 		mutex_exit(&mac_srs->srs_lock);
 		return (cookie);
 	}
@@ -3741,7 +3753,7 @@ mac_tx_serializer_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 	mac_srs->srs_state &= ~SRS_PROC;
 	if (mp_chain != NULL) {
 		cookie = mac_tx_srs_enqueue(mac_srs,
-		    mp_chain, flag, NULL, ret_mp);
+		    mp_chain, flag, 0, ret_mp);
 	}
 	if (mac_srs->srs_first != NULL) {
 		/*
@@ -3753,7 +3765,7 @@ mac_tx_serializer_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 	}
 	mutex_exit(&mac_srs->srs_lock);
 
-	if (cookie == NULL)
+	if (cookie == 0)
 		SRS_TX_STATS_UPDATE(mac_srs, &stats);
 
 	return (cookie);
@@ -3771,7 +3783,7 @@ mac_tx_serializer_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
  * queue any packets.
  */
 
-#define	MAC_TX_SOFT_RING_PROCESS(chain) {		       		\
+#define	MAC_TX_SOFT_RING_PROCESS(chain) {				\
 	index = COMPUTE_INDEX(hash, mac_srs->srs_tx_ring_count),	\
 	softring = mac_srs->srs_tx_soft_rings[index];			\
 	cookie = mac_tx_soft_ring_process(softring, chain, flag, ret_mp); \
@@ -3785,7 +3797,7 @@ mac_tx_fanout_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 	mac_soft_ring_t		*softring;
 	uint64_t		hash;
 	uint_t			index;
-	mac_tx_cookie_t		cookie = NULL;
+	mac_tx_cookie_t		cookie = 0;
 
 	ASSERT(mac_srs->srs_tx.st_mode == SRS_TX_FANOUT ||
 	    mac_srs->srs_tx.st_mode == SRS_TX_BW_FANOUT);
@@ -3850,7 +3862,7 @@ mac_tx_fanout_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 			MAC_TX_SOFT_RING_PROCESS(sub_chain);
 		}
 
-		cookie = NULL;
+		cookie = 0;
 	}
 
 	return (cookie);
@@ -3870,7 +3882,7 @@ mac_tx_bw_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 {
 	int			cnt, sz;
 	mblk_t			*tail;
-	mac_tx_cookie_t		cookie = NULL;
+	mac_tx_cookie_t		cookie = 0;
 	mac_srs_tx_t		*srs_tx = &mac_srs->srs_tx;
 	clock_t			now;
 
@@ -3887,7 +3899,8 @@ mac_tx_bw_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 			cookie = (mac_tx_cookie_t)mac_srs;
 			*ret_mp = mp_chain;
 		} else {
-			MAC_TX_SRS_DROP_MESSAGE(mac_srs, mp_chain, cookie);
+			MAC_TX_SRS_DROP_MESSAGE(mac_srs, mp_chain, cookie,
+			    "Tx no bandwidth");
 		}
 		mutex_exit(&mac_srs->srs_lock);
 		return (cookie);
@@ -3960,7 +3973,7 @@ mac_tx_bw_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 		}
 		SRS_TX_STATS_UPDATE(mac_srs, &stats);
 
-		return (NULL);
+		return (0);
 	}
 }
 
@@ -3998,7 +4011,7 @@ mac_tx_aggr_mode(mac_soft_ring_set_t *mac_srs, mblk_t *mp_chain,
 	find_tx_ring_fn = srs_tx->st_capab_aggr.mca_find_tx_ring_fn;
 	arg = srs_tx->st_capab_aggr.mca_arg;
 	if (find_tx_ring_fn(arg, mp_chain, fanout_hint, &ring) == NULL)
-		return (NULL);
+		return (0);
 	sringp = srs_tx->st_soft_rings[((mac_ring_t *)ring)->mr_index];
 	return (mac_tx_soft_ring_process(sringp, mp_chain, flag, ret_mp));
 }
@@ -4334,7 +4347,7 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 			    msgdsize(mp));
 
 			CHECK_VID_AND_ADD_TAG(mp);
-			MAC_TX(mip, ring, mp, src_mcip);
+			mp = mac_provider_tx(mip, ring, mp, src_mcip);
 
 			/*
 			 * If the driver is out of descriptors and does a
@@ -4365,7 +4378,6 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 		flow_entry_t *dst_flow_ent;
 		void *flow_cookie;
 		size_t	pkt_size;
-		mblk_t *mp1;
 
 		next = mp->b_next;
 		mp->b_next = NULL;
@@ -4380,44 +4392,12 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 		dst_flow_ent = mac_tx_classify(mip, mp);
 
 		if (dst_flow_ent != NULL) {
-			size_t	hdrsize;
-			int	err = 0;
-
-			if (mip->mi_info.mi_nativemedia == DL_ETHER) {
-				struct ether_vlan_header *evhp =
-				    (struct ether_vlan_header *)mp->b_rptr;
-
-				if (ntohs(evhp->ether_tpid) == ETHERTYPE_VLAN)
-					hdrsize = sizeof (*evhp);
-				else
-					hdrsize = sizeof (struct ether_header);
-			} else {
-				mac_header_info_t	mhi;
-
-				err = mac_header_info((mac_handle_t)mip,
-				    mp, &mhi);
-				if (err == 0)
-					hdrsize = mhi.mhi_hdrsize;
-			}
-
 			/*
 			 * Got a matching flow. It's either another
 			 * MAC client, or a broadcast/multicast flow.
-			 * Make sure the packet size is within the
-			 * allowed size. If not drop the packet and
-			 * move to next packet.
 			 */
-			if (err != 0 ||
-			    (pkt_size - hdrsize) > mip->mi_sdu_max) {
-				oerrors++;
-				DTRACE_PROBE2(loopback__drop, size_t, pkt_size,
-				    mblk_t *, mp);
-				freemsg(mp);
-				mp = next;
-				FLOW_REFRELE(dst_flow_ent);
-				continue;
-			}
 			flow_cookie = mac_flow_get_client_cookie(dst_flow_ent);
+
 			if (flow_cookie != NULL) {
 				/*
 				 * The vnic_bcast_send function expects
@@ -4435,6 +4415,7 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 				 * bypass is set.
 				 */
 				boolean_t do_switch;
+
 				mac_client_impl_t *dst_mcip =
 				    dst_flow_ent->fe_mcip;
 
@@ -4450,19 +4431,23 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 				 * check is done inside the MAC_TX()
 				 * macro.
 				 */
-				if (mip->mi_promisc_list != NULL)
-					mac_promisc_dispatch(mip, mp, src_mcip);
+				if (mip->mi_promisc_list != NULL) {
+					mac_promisc_dispatch(mip, mp, src_mcip,
+					    B_TRUE);
+				}
 
 				do_switch = ((src_mcip->mci_state_flags &
 				    dst_mcip->mci_state_flags &
 				    MCIS_CLIENT_POLL_CAPABLE) != 0);
 
-				if ((mp1 = mac_fix_cksum(mp)) != NULL) {
+				mac_hw_emul(&mp, NULL, NULL, MAC_ALL_EMULS);
+				if (mp != NULL) {
 					(dst_flow_ent->fe_cb_fn)(
 					    dst_flow_ent->fe_cb_arg1,
 					    dst_flow_ent->fe_cb_arg2,
-					    mp1, do_switch);
+					    mp, do_switch);
 				}
+
 			}
 			FLOW_REFRELE(dst_flow_ent);
 		} else {
@@ -4470,7 +4455,7 @@ mac_tx_send(mac_client_handle_t mch, mac_ring_handle_t ring, mblk_t *mp_chain,
 			 * Unknown destination, send via the underlying
 			 * NIC.
 			 */
-			MAC_TX(mip, ring, mp, src_mcip);
+			mp = mac_provider_tx(mip, ring, mp, src_mcip);
 			if (mp != NULL) {
 				/*
 				 * Adjust for the last packet that
@@ -4612,7 +4597,7 @@ mac_tx_notify(mac_impl_t *mip)
  * a short period.
  */
 
-#define	SOFT_RING_ENQUEUE_CHAIN(ringp, mp, tail, cnt, sz) {	       	\
+#define	SOFT_RING_ENQUEUE_CHAIN(ringp, mp, tail, cnt, sz) {		\
 	/*								\
 	 * Enqueue our mblk chain.					\
 	 */								\
@@ -4653,6 +4638,9 @@ mac_rx_deliver(void *arg1, mac_resource_handle_t mrh, mblk_t *mp_chain,
 		 * the packet to the promiscuous listeners of the
 		 * client, since they expect to see the whole
 		 * frame including the VLAN headers.
+		 *
+		 * The MCIS_STRIP_DISABLE is only issued when sun4v
+		 * vsw is in play.
 		 */
 		mp_chain = mac_strip_vlan_tag_chain(mp_chain);
 	}
@@ -4661,13 +4649,11 @@ mac_rx_deliver(void *arg1, mac_resource_handle_t mrh, mblk_t *mp_chain,
 }
 
 /*
- * mac_rx_soft_ring_process
- *
- * process a chain for a given soft ring. The number of packets queued
- * in the SRS and its associated soft rings (including this one) is
- * very small (tracked by srs_poll_pkt_cnt), then allow the entering
- * thread (interrupt or poll thread) to do inline processing. This
- * helps keep the latency down under low load.
+ * Process a chain for a given soft ring. If the number of packets
+ * queued in the SRS and its associated soft rings (including this
+ * one) is very small (tracked by srs_poll_pkt_cnt) then allow the
+ * entering thread (interrupt or poll thread) to process the chain
+ * inline. This is meant to reduce latency under low load.
  *
  * The proc and arg for each mblk is already stored in the mblk in
  * appropriate places.
@@ -4726,13 +4712,13 @@ mac_rx_soft_ring_process(mac_client_impl_t *mcip, mac_soft_ring_t *ringp,
 
 			ASSERT(MUTEX_NOT_HELD(&ringp->s_ring_lock));
 			/*
-			 * If we have a soft ring set which is doing
-			 * bandwidth control, we need to decrement
-			 * srs_size and count so it the SRS can have a
-			 * accurate idea of what is the real data
-			 * queued between SRS and its soft rings. We
-			 * decrement the counters only when the packet
-			 * gets processed by both SRS and the soft ring.
+			 * If we have an SRS performing bandwidth
+			 * control then we need to decrement the size
+			 * and count so the SRS has an accurate count
+			 * of the data queued between the SRS and its
+			 * soft rings. We decrement the counters only
+			 * when the packet is processed by both the
+			 * SRS and the soft ring.
 			 */
 			mutex_enter(&mac_srs->srs_lock);
 			MAC_UPDATE_SRS_COUNT_LOCKED(mac_srs, cnt);
@@ -4748,8 +4734,8 @@ mac_rx_soft_ring_process(mac_client_impl_t *mcip, mac_soft_ring_t *ringp,
 			if ((ringp->s_ring_first == NULL) ||
 			    (ringp->s_ring_state & S_RING_BLANK)) {
 				/*
-				 * We processed inline our packet and
-				 * nothing new has arrived or our
+				 * We processed a single packet inline
+				 * and nothing new has arrived or our
 				 * receiver doesn't want to receive
 				 * any packets. We are done.
 				 */
@@ -4789,7 +4775,7 @@ mac_rx_soft_ring_process(mac_client_impl_t *mcip, mac_soft_ring_t *ringp,
  * a short period.
  */
 
-#define	TX_SOFT_RING_ENQUEUE_CHAIN(ringp, mp, tail, cnt, sz) {	       	\
+#define	TX_SOFT_RING_ENQUEUE_CHAIN(ringp, mp, tail, cnt, sz) {		\
 	ASSERT(MUTEX_HELD(&ringp->s_ring_lock));			\
 	ringp->s_ring_state |= S_RING_ENQUEUED;				\
 	SOFT_RING_ENQUEUE_CHAIN(ringp, mp_chain, tail, cnt, sz);	\
@@ -4812,13 +4798,13 @@ mac_tx_sring_enqueue(mac_soft_ring_t *ringp, mblk_t *mp_chain, uint16_t flag,
 	size_t sz;
 	mblk_t *tail;
 	mac_soft_ring_set_t *mac_srs = ringp->s_ring_set;
-	mac_tx_cookie_t cookie = NULL;
+	mac_tx_cookie_t cookie = 0;
 	boolean_t wakeup_worker = B_TRUE;
 
 	ASSERT(MUTEX_HELD(&ringp->s_ring_lock));
 	MAC_COUNT_CHAIN(mac_srs, mp_chain, tail, cnt, sz);
 	if (flag & MAC_DROP_ON_NO_DESC) {
-		mac_pkt_drop(NULL, NULL, mp_chain, B_FALSE);
+		mac_drop_chain(mp_chain, "Tx softring no desc");
 		/* increment freed stats */
 		ringp->s_ring_drops += cnt;
 		cookie = (mac_tx_cookie_t)ringp;
@@ -4862,8 +4848,8 @@ mac_tx_sring_enqueue(mac_soft_ring_t *ringp, mblk_t *mp_chain, uint16_t flag,
 					 * b_prev may be set to the fanout hint
 					 * hence can't use freemsg directly
 					 */
-					mac_pkt_drop(NULL, NULL,
-					    mp_chain, B_FALSE);
+					mac_drop_chain(mp_chain,
+					    "Tx softring max queue");
 					DTRACE_PROBE1(tx_queued_hiwat,
 					    mac_soft_ring_t *, ringp);
 					enqueue = B_FALSE;
@@ -4896,7 +4882,7 @@ mac_tx_soft_ring_process(mac_soft_ring_t *ringp, mblk_t *mp_chain,
 	int	cnt;
 	size_t	sz;
 	mblk_t	*tail;
-	mac_tx_cookie_t cookie = NULL;
+	mac_tx_cookie_t cookie = 0;
 
 	ASSERT(ringp != NULL);
 	ASSERT(mp_chain != NULL);
@@ -4986,6 +4972,6 @@ mac_tx_soft_ring_process(mac_soft_ring_t *ringp, mblk_t *mp_chain,
 		SRS_TX_STATS_UPDATE(mac_srs, &stats);
 		SOFTRING_TX_STATS_UPDATE(ringp, &stats);
 
-		return (NULL);
+		return (0);
 	}
 }

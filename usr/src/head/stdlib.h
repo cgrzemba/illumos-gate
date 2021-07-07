@@ -26,16 +26,20 @@
  * Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
-/* Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved. */
+/*
+ * Copyright (c) 2013, OmniTI Computer Consulting, Inc. All rights reserved.
+ * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ */
 
 /*	Copyright (c) 1988 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*	  All Rights Reserved	*/
 
 #ifndef _STDLIB_H
 #define	_STDLIB_H
 
 #include <iso/stdlib_iso.h>
 #include <iso/stdlib_c99.h>
+#include <iso/stdlib_c11.h>
 
 #if defined(__EXTENSIONS__) || defined(_XPG4)
 #include <sys/wait.h>
@@ -77,6 +81,18 @@ using std::strtoul;
 using std::system;
 using std::wcstombs;
 using std::wctomb;
+#endif
+
+/*
+ * Allow global visibility for symbols defined in
+ * C++ "std" namespace in <iso/stdlib_c11.h>.
+ */
+#if __cplusplus >= 201103L
+using std::at_quick_exit;
+using std::quick_exit;
+#endif
+#if __cplusplus >= 201703L
+using std::aligned_alloc;
 #endif
 
 #ifdef	__cplusplus
@@ -234,6 +250,19 @@ extern int setenv(const char *, const char *, int);
 extern int unsetenv(const char *);
 #endif
 
+/*
+ * In strict XPG4v2 mode, slave pseudo terminal devices behave differently.
+ * See the block comment in usr/src/lib/libc/port/gen/pt.c
+ */
+#if defined(_STRICT_SYMBOLS) && defined(_XPG4_2)
+#ifdef	__PRAGMA_REDEFINE_EXTNAME
+#pragma redefine_extname unlockpt __unlockpt_xpg4
+#else
+extern int __unlockpt_xpg4(int);
+#define	unlockpt __unlockpt_xpg4
+#endif
+#endif	/* defined(_STRICT_SYMBOLS) && defined(_XPG4_2) */
+
 #if defined(__EXTENSIONS__) || \
 	(!defined(_STRICT_STDC) && !defined(__XOPEN_OR_POSIX))
 extern char *canonicalize_file_name(const char *);
@@ -282,14 +311,21 @@ extern char *ulltostr(unsigned long long, char *);
 
 #endif /* defined(__EXTENSIONS__) || !defined(_STRICT_STDC) ... */
 
-/* OpenBSD compatibility functions */
+/* OpenBSD and misc. compatibility functions */
 #if !defined(_STRICT_SYMBOLS)
 
 #include <inttypes.h>
 extern uint32_t arc4random(void);
 extern void arc4random_buf(void *, size_t);
 extern uint32_t arc4random_uniform(uint32_t);
+extern void freezero(void *, size_t);
+extern void *reallocarray(void *, size_t, size_t);
+extern void *recallocarray(void *, size_t, size_t, size_t);
+extern long long strtonum(const char *, long long, long long, const char **);
+extern void *reallocf(void *, size_t);
 
+extern void qsort_r(void *, size_t, size_t,
+    int (*)(const void *, const void *, void *), void *);
 #endif	/* !_STRICT_SYBMOLS */
 
 

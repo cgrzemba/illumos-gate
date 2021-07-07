@@ -27,15 +27,14 @@
 SUBDIRS=	bridged ilbd in.chargend in.daytimed \
 		in.discardd in.echod in.mpathd in.ndpd \
 		in.ripngd in.timed inetd mdnsd ncaconfd pppoe \
-		slpd vrrpd wanboot wpa_supplicant
+		slpd vrrpd wpad
 
-MSGSUBDIRS=	ilbd inetd ncaconfd vrrpd wanboot
+MSGSUBDIRS=	ilbd inetd ncaconfd vrrpd
 
 include ../../Makefile.cmd
 include ./Makefile.lib
 
-POFILES=	inetd/inetd.po ncaconfd/ncaconfd.po vrrpd/vrrpd.po \
-		wanboot/wanboot.po
+POFILES=	inetd/inetd.po ncaconfd/ncaconfd.po vrrpd/vrrpd.po
 POFILE=		usr.lib.po
 
 all:=		TARGET= all
@@ -54,7 +53,7 @@ install: $(SUBDIRS)
 	-$(LN) $(ISAEXEC) $(ROOTLIBINET)/in.iked
 
 
-_msg: $(MSGSUBDIRS) 
+_msg: $(MSGSUBDIRS)
 
 $(SUBDIRS): FRC
 	@cd $@; pwd; $(MAKE) $(MFLAGS) $(TARGET)

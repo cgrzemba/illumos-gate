@@ -21,18 +21,20 @@
 
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2018 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright (c) 2016 by Delphix. All rights reserved.
  */
 
 #ifndef _SMB_SHARE_H
 #define	_SMB_SHARE_H
 
 #include <sys/param.h>
+#include <smb/lmerr.h>
+#include <smb/wintypes.h>
 #include <smbsrv/string.h>
 #include <smbsrv/smb_inet.h>
 #include <smbsrv/hash_table.h>
-#include <smbsrv/wintypes.h>
-#include <smb/lmerr.h>
+#include <smbsrv/smbinfo.h>
 
 #if !defined(_KERNEL) && !defined(_FAKE_KERNEL)
 #include <libshare.h>
@@ -56,24 +58,32 @@ extern "C" {
  * name			Advertised name of the share
  *
  * ad-container		Active directory container in which the share
- * 			will be published
+ *			will be published
  *
  * abe			Determines whether Access Based Enumeration is applied
  *			to a share
  *
  * csc			Client-side caching (CSC) options applied to this share
- * 	disabled	The client MUST NOT cache any files
- * 	manual		The client should not automatically cache every file
- * 			that it	opens
- * 	auto		The client may cache every file that it opens
- * 	vdo		The client may cache every file that it opens
+ *	disabled	The client MUST NOT cache any files
+ *	manual		The client should not automatically cache every file
+ *			that it	opens
+ *	auto		The client may cache every file that it opens
+ *	vdo		The client may cache every file that it opens
  *			and satisfy file requests from its local cache.
  *
  * catia		CATIA character substitution
  *
  * guestok		Determines whether guest access is allowed
  *
- * next three properties use access-list a al NFS
+ * quotas		SMB quotas presented & supported (T/F)
+ *
+ * encrypt		Controls SMB3 encryption per-share.
+ *	disabled	Server does not tell the client to encrypt requests.
+ *	enabled		Server asks, but does not require, that the client
+ *			encrypt its requests.
+ *	required	Server denies unencrypted share access.
+ *
+ * next three properties use access-list a la NFS
  *
  * ro			list of hosts that will have read-only access
  * rw			list of hosts that will have read/write access
@@ -82,6 +92,7 @@ extern "C" {
 #define	SHOPT_AD_CONTAINER	"ad-container"
 #define	SHOPT_ABE		"abe"
 #define	SHOPT_NAME		"name"
+#define	SHOPT_CA		"ca"
 #define	SHOPT_CSC		"csc"
 #define	SHOPT_CATIA		"catia"
 #define	SHOPT_GUEST		"guestok"
@@ -90,6 +101,10 @@ extern "C" {
 #define	SHOPT_NONE		"none"
 #define	SHOPT_DFSROOT		"dfsroot"
 #define	SHOPT_DESCRIPTION	"description"
+#define	SHOPT_QUOTAS		"quotas"
+#define	SHOPT_FSO		"fso"	/* Force Shared Oplocks */
+#define	SHOPT_ENCRYPT		"encrypt"
+#define	SHOPT_AUTOHOME		"Autohome"
 
 #define	SMB_DEFAULT_SHARE_GROUP	"smb"
 #define	SMB_PROTOCOL_NAME	"smb"
@@ -169,6 +184,10 @@ extern "C" {
 #define	SMB_SHRF_ACC_RW		0x0400
 #define	SMB_SHRF_ACC_ALL	0x0F00
 
+#define	SMB_SHRF_QUOTAS		0x1000	/* Enable SMB Quotas */
+#define	SMB_SHRF_FSO		0x2000	/* Force Shared Oplocks */
+#define	SMB_SHRF_CA		0x4000	/* Continuous Availability */
+
 /*
  * Runtime flags
  */
@@ -176,12 +195,13 @@ extern "C" {
 #define	SMB_SHRF_TRANS		0x10000000
 #define	SMB_SHRF_PERM		0x20000000
 #define	SMB_SHRF_AUTOHOME	0x40000000
+#define	SMB_SHRF_REMOVED	0x80000000	/* unshared */
 
 #define	SMB_SHARE_PRINT		"print$"
 #define	SMB_SHARE_PRINT_LEN	6
 /*
  * refcnt is currently only used for autohome.  autohome needs a refcnt
- * because a user can map his autohome share from more than one client
+ * because a user can map their autohome share from more than one client
  * at the same time and the share should only be removed when the last
  * one is disconnected
  */
@@ -199,6 +219,7 @@ typedef struct smb_share {
 	char		shr_access_none[MAXPATHLEN];
 	char		shr_access_ro[MAXPATHLEN];
 	char		shr_access_rw[MAXPATHLEN];
+	smb_cfg_val_t	shr_encrypt;
 } smb_share_t;
 
 typedef struct smb_shriter {
@@ -240,6 +261,8 @@ typedef struct smb_shr_execinfo {
 int smb_shr_start(void);
 void smb_shr_stop(void);
 void *smb_shr_load(void *);
+void smb_shr_load_execinfo(void);
+void smb_shr_unload(void);
 void smb_shr_iterinit(smb_shriter_t *);
 smb_share_t *smb_shr_iterate(smb_shriter_t *);
 void smb_shr_list(int, smb_shrlist_t *);

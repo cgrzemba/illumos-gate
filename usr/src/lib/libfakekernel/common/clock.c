@@ -10,7 +10,7 @@
  */
 
 /*
- * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  */
 
 
@@ -56,13 +56,6 @@ ddi_get_lbolt64(void)
 	return (hrt / nsec_per_tick);
 }
 
-void
-clock2ts(clock_t clk, timespec_t *ts)
-{
-	ts->tv_sec = clk / hz;
-	ts->tv_nsec = (clk % hz) * (NANOSEC / hz);
-}
-
 hrtime_t
 gethrtime_unscaled(void)
 {
@@ -72,11 +65,11 @@ gethrtime_unscaled(void)
 void
 gethrestime(timespec_t *ts)
 {
-	hrtime_t hrt;
+	struct timeval tv;
 
-	hrt = gethrtime();
-	ts->tv_sec = hrt / NANOSEC;
-	ts->tv_nsec = hrt % NANOSEC;
+	(void) gettimeofday(&tv, NULL);
+	ts->tv_sec = tv.tv_sec;
+	ts->tv_nsec = tv.tv_usec * 1000;
 }
 
 time_t
@@ -89,4 +82,49 @@ gethrestime_sec(void)
 void
 scalehrtime(hrtime_t *t)
 {
+}
+
+/*
+ * These functions are blatently stolen from the kernel.
+ * See the dissertation in the comments preceding the
+ * hrt2ts() and ts2hrt() functions in:
+ *	uts/common/os/timers.c
+ */
+void
+hrt2ts(hrtime_t hrt, timespec_t *tsp)
+{
+	uint32_t sec, nsec, tmp;
+
+	tmp = (uint32_t)(hrt >> 30);
+	sec = tmp - (tmp >> 2);
+	sec = tmp - (sec >> 5);
+	sec = tmp + (sec >> 1);
+	sec = tmp - (sec >> 6) + 7;
+	sec = tmp - (sec >> 3);
+	sec = tmp + (sec >> 1);
+	sec = tmp + (sec >> 3);
+	sec = tmp + (sec >> 4);
+	tmp = (sec << 7) - sec - sec - sec;
+	tmp = (tmp << 7) - tmp - tmp - tmp;
+	tmp = (tmp << 7) - tmp - tmp - tmp;
+	nsec = (uint32_t)hrt - (tmp << 9);
+	while (nsec >= NANOSEC) {
+		nsec -= NANOSEC;
+		sec++;
+	}
+	tsp->tv_sec = (time_t)sec;
+	tsp->tv_nsec = nsec;
+}
+
+hrtime_t
+ts2hrt(const timestruc_t *tsp)
+{
+	hrtime_t hrt;
+
+	hrt = tsp->tv_sec;
+	hrt = (hrt << 7) - hrt - hrt - hrt;
+	hrt = (hrt << 7) - hrt - hrt - hrt;
+	hrt = (hrt << 7) - hrt - hrt - hrt;
+	hrt = (hrt << 9) + tsp->tv_nsec;
+	return (hrt);
 }

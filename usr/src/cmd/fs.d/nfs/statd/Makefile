@@ -28,6 +28,9 @@
 # Copyright 1990-2003 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
+# Copyright (c) 2016 by Delphix. All rights reserved.
+#
+# Copyright (c) 2018, Joyent, Inc.
 
 FSTYPE=		nfs
 TYPEPROG=	statd
@@ -37,15 +40,21 @@ include		../../Makefile.fstype
 CPPFLAGS +=     -D_REENTRANT -DSUN_THREADS
 
 CERRWARN +=	-_gcc=-Wno-unused-variable
+CERRWARN +=	-_gcc=-Wno-switch
 CERRWARN +=	-_gcc=-Wno-parentheses
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
+
+# not linted
+SMATCH=off
 
 LOCAL=		sm_svc.o sm_proc.o sm_statd.o
-OBJS= 		$(LOCAL) selfcheck.o daemon.o
+OBJS=		$(LOCAL) selfcheck.o daemon.o smfcfg.o
 
-SRCS=		$(LOCAL:%.o=%.c) ../lib/selfcheck.c ../lib/daemon.c
+SRCS=		$(LOCAL:%.o=%.c) ../lib/selfcheck.c ../lib/daemon.c \
+		../lib/smfcfg.c
 
-LDLIBS +=	-lsocket -lrpcsvc -lnsl
+LDLIBS +=	-lsocket -lrpcsvc -lnsl -lscf
+CPPFLAGS +=     -I../lib
 
 $(TYPEPROG):	$(OBJS)
 		$(LINK.c) -o $@ $(OBJS) $(LDLIBS)
@@ -57,6 +66,9 @@ selfcheck.o:	../lib/selfcheck.c
 
 daemon.o:	../lib/daemon.c
 		$(COMPILE.c) ../lib/daemon.c
+
+smfcfg.o:	../lib/smfcfg.c
+		$(COMPILE.c) ../lib/smfcfg.c
 
 lint:		lint_SRCS
 

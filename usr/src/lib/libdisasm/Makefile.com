@@ -23,6 +23,7 @@
 # Use is subject to license terms.
 # Copyright 2012 Joshua M. Clulow <josh@sysmgr.org>
 # Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+# Copyright (c) 2018, Joyent, Inc.
 #
 
 #
@@ -57,12 +58,16 @@ SRCS_i386=		$(COMDIR)/dis_i386.c \
 SRCS_sparc=		$(COMDIR)/dis_sparc.c \
 			$(COMDIR)/dis_sparc_fmt.c \
 			$(COMDIR)/dis_sparc_instr.c
+SRCS_s390x=		$(COMDIR)/dis_s390x.c
+SRCS_riscv=		$(COMDIR)/dis_riscv.c
 
 OBJECTS_i386=		dis_i386.o \
 			dis_tables.o
 OBJECTS_sparc=		dis_sparc.o \
 			dis_sparc_fmt.o \
 			dis_sparc_instr.o
+OBJECTS_s390x=		dis_s390x.o
+OBJECTS_riscv=		dis_riscv.o
 
 #
 # We build the regular shared library with support for all architectures.
@@ -71,7 +76,9 @@ OBJECTS_sparc=		dis_sparc.o \
 #
 OBJECTS_library=	$(OBJECTS_common) \
 			$(OBJECTS_i386) \
-			$(OBJECTS_sparc)
+			$(OBJECTS_sparc) \
+			$(OBJECTS_s390x) \
+			$(OBJECTS_riscv)
 OBJECTS_standalone=	$(OBJECTS_common) \
 			$(OBJECTS_$(MACH))
 OBJECTS=		$(OBJECTS_$(CURTYPE))
@@ -80,7 +87,9 @@ include $(SRC)/lib/Makefile.lib
 
 SRCS_library=		$(SRCS_common) \
 			$(SRCS_i386) \
-			$(SRCS_sparc)
+			$(SRCS_sparc) \
+			$(SRCS_s390x) \
+			$(SRCS_riscv)
 SRCS_standalone=	$(SRCS_common) \
 			$(SRCS_$(MACH))
 SRCS=			$(SRCS_$(CURTYPE))
@@ -95,7 +104,7 @@ CLOBBERFILES_standalone = $(LINKTEST_OBJ)
 CLOBBERFILES += $(CLOBBERFILES_$(CURTYPE))
 
 LIBS_standalone	= $(STANDLIBRARY)
-LIBS_library = $(DYNLIB) $(LINTLIB)
+LIBS_library = $(DYNLIB)
 LIBS = $(LIBS_$(CURTYPE))
 
 MAPFILES =	$(COMDIR)/mapfile-vers
@@ -109,10 +118,17 @@ ASFLAGS_standalone = -DDIS_STANDALONE
 ASFLAGS_library =
 ASFLAGS += -P $(ASFLAGS_$(CURTYPE)) -D_ASM
 
-$(LINTLIB) := SRCS = $(COMDIR)/$(LINTSRC)
-
 CERRWARN +=	-_gcc=-Wno-parentheses
-CERRWARN +=	-_gcc=-Wno-uninitialized
+CERRWARN +=	$(CNOWARN_UNINIT)
+
+# not linted
+SMATCH=off
+
+#
+# The standalone environment currently does not support the stack
+# protector.
+#
+STACKPROTECT = none
 
 # We want the thread-specific errno in the library, but we don't want it in
 # the standalone.  $(DTS_ERRNO) is designed to add -D_TS_ERRNO to $(CPPFLAGS),
@@ -134,6 +150,8 @@ CFLAGS += $(CFLAGS_$(CURTYPE)) $(CFLAGS_common)
 
 CFLAGS64_standalone = $(STAND_FLAGS_64)
 CFLAGS64 += $(CCVERBOSE) $(CFLAGS64_$(CURTYPE)) $(CFLAGS64_common)
+
+CSTD = $(CSTD_GNU99)
 
 DYNFLAGS +=     $(ZINTERPOSE)
 

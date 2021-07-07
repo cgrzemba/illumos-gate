@@ -843,7 +843,7 @@ nlm_nsm_init(struct nlm_nsm *nsm, struct knetconfig *knc, struct netbuf *nb)
 	 * statd using the status monitor protocol.
 	 */
 	error = clnt_tli_kcreate(&nsm->ns_knc, &nsm->ns_addr, SM_PROG, SM_VERS,
-	    0, NLM_RPC_RETRIES, kcred, &nsm->ns_handle);
+	    0, NLM_RPC_RETRIES, zone_kcred(), &nsm->ns_handle);
 	if (error != 0)
 		goto error;
 
@@ -852,7 +852,8 @@ nlm_nsm_init(struct nlm_nsm *nsm, struct knetconfig *knc, struct netbuf *nb)
 	 * local statd using the address registration protocol.
 	 */
 	error = clnt_tli_kcreate(&nsm->ns_knc, &nsm->ns_addr, NSM_ADDR_PROGRAM,
-	    NSM_ADDR_V1, 0, NLM_RPC_RETRIES, kcred, &nsm->ns_addr_handle);
+	    NSM_ADDR_V1, 0, NLM_RPC_RETRIES, zone_kcred(),
+	    &nsm->ns_addr_handle);
 	if (error != 0)
 		goto error;
 
@@ -861,8 +862,11 @@ nlm_nsm_init(struct nlm_nsm *nsm, struct knetconfig *knc, struct netbuf *nb)
 
 error:
 	kmem_free(nsm->ns_addr.buf, nsm->ns_addr.maxlen);
-	if (nsm->ns_handle)
+	if (nsm->ns_handle) {
+		ASSERT(nsm->ns_handle->cl_auth != NULL);
+		auth_destroy(nsm->ns_handle->cl_auth);
 		CLNT_DESTROY(nsm->ns_handle);
+	}
 
 	return (error);
 }
@@ -871,8 +875,12 @@ static void
 nlm_nsm_fini(struct nlm_nsm *nsm)
 {
 	kmem_free(nsm->ns_addr.buf, nsm->ns_addr.maxlen);
+	if (nsm->ns_addr_handle->cl_auth != NULL)
+		auth_destroy(nsm->ns_addr_handle->cl_auth);
 	CLNT_DESTROY(nsm->ns_addr_handle);
 	nsm->ns_addr_handle = NULL;
+	if (nsm->ns_handle->cl_auth != NULL)
+		auth_destroy(nsm->ns_handle->cl_auth);
 	CLNT_DESTROY(nsm->ns_handle);
 	nsm->ns_handle = NULL;
 	sema_destroy(&nsm->ns_sem);
@@ -1788,20 +1796,18 @@ out:
  * any, it removes them.
  * NOTE: only unused hosts can be in idle state.
  */
-void
-nlm_host_release(struct nlm_globals *g, struct nlm_host *hostp)
+static void
+nlm_host_release_locked(struct nlm_globals *g, struct nlm_host *hostp)
 {
 	if (hostp == NULL)
 		return;
 
-	mutex_enter(&g->lock);
+	ASSERT(MUTEX_HELD(&g->lock));
 	ASSERT(hostp->nh_refs > 0);
 
 	hostp->nh_refs--;
-	if (hostp->nh_refs != 0) {
-		mutex_exit(&g->lock);
+	if (hostp->nh_refs != 0)
 		return;
-	}
 
 	/*
 	 * The very last reference to the host was dropped,
@@ -1814,6 +1820,16 @@ nlm_host_release(struct nlm_globals *g, struct nlm_host *hostp)
 	ASSERT((hostp->nh_flags & NLM_NH_INIDLE) == 0);
 	TAILQ_INSERT_TAIL(&g->nlm_idle_hosts, hostp, nh_link);
 	hostp->nh_flags |= NLM_NH_INIDLE;
+}
+
+void
+nlm_host_release(struct nlm_globals *g, struct nlm_host *hostp)
+{
+	if (hostp == NULL)
+		return;
+
+	mutex_enter(&g->lock);
+	nlm_host_release_locked(g, hostp);
 	mutex_exit(&g->lock);
 }
 
@@ -2074,7 +2090,7 @@ nlm_slock_grant(struct nlm_globals *g,
  */
 int
 nlm_slreq_register(struct nlm_host *hostp, struct nlm_vhold *nvp,
-	struct flock64 *flp)
+    struct flock64 *flp)
 {
 	struct nlm_slreq *slr, *new_slr = NULL;
 	int ret = EEXIST;
@@ -2115,7 +2131,7 @@ out:
  */
 int
 nlm_slreq_unregister(struct nlm_host *hostp, struct nlm_vhold *nvp,
-	struct flock64 *flp)
+    struct flock64 *flp)
 {
 	struct nlm_slreq *slr;
 
@@ -2554,17 +2570,28 @@ nlm_vp_active(const vnode_t *vp)
  * on them.
  */
 void
-nlm_unexport(struct exportinfo *exi)
+nlm_zone_unexport(struct nlm_globals *g, struct exportinfo *exi)
 {
-	struct nlm_globals *g;
 	struct nlm_host *hostp;
 
-	g = zone_getspecific(nlm_zone_key, curzone);
-
 	mutex_enter(&g->lock);
+	if (g->run_status != NLM_ST_UP) {
+		/* nothing to do */
+		mutex_exit(&g->lock);
+		return;
+	}
+
 	hostp = avl_first(&g->nlm_hosts_tree);
 	while (hostp != NULL) {
 		struct nlm_vhold *nvp;
+
+		if (hostp->nh_flags & NLM_NH_INIDLE) {
+			TAILQ_REMOVE(&g->nlm_idle_hosts, hostp, nh_link);
+			hostp->nh_flags &= ~NLM_NH_INIDLE;
+		}
+		hostp->nh_refs++;
+
+		mutex_exit(&g->lock);
 
 		mutex_enter(&hostp->nh_lock);
 		TAILQ_FOREACH(nvp, &hostp->nh_vholds_list, nv_link) {
@@ -2590,12 +2617,37 @@ nlm_unexport(struct exportinfo *exi)
 			mutex_enter(&hostp->nh_lock);
 			nvp->nv_refcnt--;
 		}
-
 		mutex_exit(&hostp->nh_lock);
+
+		mutex_enter(&g->lock);
+		nlm_host_release_locked(g, hostp);
+
 		hostp = AVL_NEXT(&g->nlm_hosts_tree, hostp);
 	}
 
 	mutex_exit(&g->lock);
+}
+
+void
+nlm_unexport(struct exportinfo *exi)
+{
+	struct nlm_globals *g;
+
+	rw_enter(&lm_lck, RW_READER);
+	TAILQ_FOREACH(g, &nlm_zones_list, nlm_link) {
+		if (g->nlm_zoneid == exi->exi_zoneid) {
+			/*
+			 * NOTE: If we want to drop lm_lock before
+			 * calling nlm_zone_unexport(), we should break,
+			 * and have a post-rw_exit() snippit like:
+			 *	if (g != NULL)
+			 *		nlm_zone_unexport(g, exi);
+			 */
+			nlm_zone_unexport(g, exi);
+			break; /* Only going to match once! */
+		}
+	}
+	rw_exit(&lm_lck);
 }
 
 /*
@@ -2766,7 +2818,7 @@ static void
 nlm_nsm_clnt_init(CLIENT *clnt, struct nlm_nsm *nsm)
 {
 	(void) clnt_tli_kinit(clnt, &nsm->ns_knc, &nsm->ns_addr, 0,
-	    NLM_RPC_RETRIES, kcred);
+	    NLM_RPC_RETRIES, zone_kcred());
 }
 
 static void

@@ -20,6 +20,10 @@
  */
 
 /*
+ * Copyright (c) 2018 Peter Tribble.
+ */
+
+/*
  * Copyright (c) 1993, 2010, Oracle and/or its affiliates. All rights reserved.
  */
 
@@ -61,7 +65,6 @@ typedef unsigned long CAF_T;
 
 #define	CAF_IN_GLOBAL_ZONE	0x00000001	/* in global zone */
 #define	CAF_SCOPE_GLOBAL	0x00000002	/* -G specified */
-#define	CAF_SCOPE_NONGLOBAL	0x00000004	/* -Z specified */
 
 /* path to the request file in the package directory */
 
@@ -330,12 +333,6 @@ extern void	putConditionInfo __P((char *, char *));
 extern void		setadminFile __P((char *file));
 extern char		*setadminSetting __P((char *a_paramName,
 				char *a_paramValue));
-extern char		*set_keystore_admin __P((void));
-extern boolean_t	get_proxy_port_admin __P((char **, ushort_t *));
-extern boolean_t	check_keystore_admin __P((char **));
-extern int		web_ck_retries __P((void));
-extern int		web_ck_timeout __P((void));
-extern int		web_ck_authentication __P((void));
 
 /* setlist.c */
 extern char	*cl_iscript __P((int idx));
@@ -354,11 +351,6 @@ extern int	cl_deliscript __P((int i));
 extern unsigned	cl_svfy __P((int i));
 extern unsigned	cl_dvfy __P((int i));
 extern unsigned	cl_pthrel __P((int i));
-
-/* passwd.c */
-extern int	pkg_passphrase_cb __P((char *, int, int, void *));
-extern void	set_passarg __P((char *));
-extern void	set_prompt __P((char *));
 
 /* fixpath.c */
 extern void __P(export_client_env(char *));

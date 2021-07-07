@@ -20,12 +20,12 @@
  */
 
 /*
- * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
  */
 
 /*
- * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
+ * Copyright 2018 Nexenta Systems, Inc.
  */
 
 #include <sys/systm.h>
@@ -41,11 +41,6 @@
 #include <nfs/nfs4_drc.h>
 
 #define	NFS4_MAX_MINOR_VERSION	0
-
-/*
- * This is the duplicate request cache for NFSv4
- */
-rfs4_drc_t *nfs4_drc = NULL;
 
 /*
  * The default size of the duplicate request cache
@@ -98,11 +93,11 @@ rfs4_init_drc(uint32_t drc_size, uint32_t drc_hash_size)
  * Destroy a duplicate request cache.
  */
 void
-rfs4_fini_drc(rfs4_drc_t *drc)
+rfs4_fini_drc(void)
 {
+	nfs4_srv_t *nsrv4 = nfs4_get_srv();
+	rfs4_drc_t *drc = nsrv4->nfs4_drc;
 	rfs4_dupreq_t *drp, *drp_next;
-
-	ASSERT(drc);
 
 	/* iterate over the dr_cache and free the enties */
 	for (drp = list_head(&(drc->dr_cache)); drp != NULL; drp = drp_next) {
@@ -360,26 +355,25 @@ rfs4_find_dr(struct svc_req *req, rfs4_drc_t *drc, rfs4_dupreq_t **dup)
  *
  * Passed into this function are:-
  *
- * 	disp	A pointer to our dispatch table entry
- * 	req	The request to process
- * 	xprt	The server transport handle
- * 	ap	A pointer to the arguments
- *	rlen	A pointer to the reply length (output)
+ *	disp	A pointer to our dispatch table entry
+ *	req	The request to process
+ *	xprt	The server transport handle
+ *	ap	A pointer to the arguments
  *
  *
  * When appropriate this function is responsible for inserting
  * the reply into the duplicate cache or replaying an existing
  * cached reply.
  *
- * dr_stat 	reflects the state of the duplicate request that
- * 		has been inserted into or retrieved from the cache
+ * dr_stat	reflects the state of the duplicate request that
+ *		has been inserted into or retrieved from the cache
  *
  * drp		is the duplicate request entry
  *
  */
 int
-rfs4_dispatch(struct rpcdisp *disp, struct svc_req *req,
-    SVCXPRT *xprt, char *ap, size_t *rlen)
+rfs4_dispatch(struct rpcdisp *disp, struct svc_req *req, SVCXPRT *xprt,
+    char *ap)
 {
 
 	COMPOUND4res	 res_buf;
@@ -391,6 +385,8 @@ rfs4_dispatch(struct rpcdisp *disp, struct svc_req *req,
 	int		 dr_stat = NFS4_NOT_DUP;
 	rfs4_dupreq_t	*drp = NULL;
 	int		 rv;
+	nfs4_srv_t *nsrv4 = nfs4_get_srv();
+	rfs4_drc_t *nfs4_drc = nsrv4->nfs4_drc;
 
 	ASSERT(disp);
 
@@ -405,7 +401,6 @@ rfs4_dispatch(struct rpcdisp *disp, struct svc_req *req,
 			return (1);
 		}
 		DTRACE_NFSV4_1(null__done, struct svc_req *, req);
-		*rlen = xdr_sizeof(xdr_void, NULL);
 		return (0);
 	}
 
@@ -413,11 +408,6 @@ rfs4_dispatch(struct rpcdisp *disp, struct svc_req *req,
 
 	rbp = &res_buf;
 	cap = (COMPOUND4args *)ap;
-
-	/*
-	 * Update kstats
-	 */
-	rfs4_compound_kstat_args(cap);
 
 	/*
 	 * Figure out the disposition of the whole COMPOUND
@@ -503,18 +493,12 @@ rfs4_dispatch(struct rpcdisp *disp, struct svc_req *req,
 	/*
 	 * Send out the replayed reply or the 'real' one.
 	 */
-	if (!svc_sendreply(xprt, xdr_COMPOUND4res_srv, (char *)rbp)) {
+	if (!svc_sendreply(xprt,  xdr_COMPOUND4res_srv, (char *)rbp)) {
 		DTRACE_PROBE2(nfss__e__dispatch_sendfail,
 		    struct svc_req *, xprt,
 		    char *, rbp);
 		svcerr_systemerr(xprt);
 		error++;
-	} else {
-		/*
-		 * Update kstats
-		 */
-		rfs4_compound_kstat_res(rbp);
-		*rlen = xdr_sizeof(xdr_COMPOUND4res_srv, rbp);
 	}
 
 	/*
@@ -561,13 +545,17 @@ rfs4_minorvers_mismatch(struct svc_req *req, SVCXPRT *xprt, void *args)
 	resp = &res_buf;
 
 	/*
-	 * Form a reply tag by copying over the reqeuest tag.
+	 * Form a reply tag by copying over the request tag.
 	 */
-	resp->tag.utf8string_val =
-	    kmem_alloc(argsp->tag.utf8string_len, KM_SLEEP);
 	resp->tag.utf8string_len = argsp->tag.utf8string_len;
-	bcopy(argsp->tag.utf8string_val, resp->tag.utf8string_val,
-	    resp->tag.utf8string_len);
+	if (argsp->tag.utf8string_len != 0) {
+		resp->tag.utf8string_val =
+		    kmem_alloc(argsp->tag.utf8string_len, KM_SLEEP);
+		bcopy(argsp->tag.utf8string_val, resp->tag.utf8string_val,
+		    resp->tag.utf8string_len);
+	} else {
+		resp->tag.utf8string_val = NULL;
+	}
 	resp->array_len = 0;
 	resp->array = NULL;
 	resp->status = NFS4ERR_MINOR_VERS_MISMATCH;
@@ -592,11 +580,15 @@ rfs4_resource_err(struct svc_req *req, COMPOUND4args *argsp)
 	/*
 	 * Form a reply tag by copying over the request tag.
 	 */
-	rbp->tag.utf8string_val =
-	    kmem_alloc(argsp->tag.utf8string_len, KM_SLEEP);
 	rbp->tag.utf8string_len = argsp->tag.utf8string_len;
-	bcopy(argsp->tag.utf8string_val, rbp->tag.utf8string_val,
-	    rbp->tag.utf8string_len);
+	if (argsp->tag.utf8string_len != 0) {
+		rbp->tag.utf8string_val =
+		    kmem_alloc(argsp->tag.utf8string_len, KM_SLEEP);
+		bcopy(argsp->tag.utf8string_val, rbp->tag.utf8string_val,
+		    rbp->tag.utf8string_len);
+	} else {
+		rbp->tag.utf8string_val = NULL;
+	}
 
 	rbp->array_len = 1;
 	rbp->array = kmem_zalloc(rbp->array_len * sizeof (nfs_resop4),

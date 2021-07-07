@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2012 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #ifndef _MLSVC_SAM_NDL_
@@ -31,7 +31,7 @@
  * Security Accounts Manager RPC (SAMR) interface definition.
  */
 
-#include "ndrtypes.ndl"
+#include <libmlrpc/ndrtypes.ndl>
 
 /* Windows NT */
 #define SAMR_OPNUM_Connect			0x00	/* SamrConnect */
@@ -363,7 +363,7 @@ struct samr_logon_hours_all {
 #ifndef	NDRGEN
 #define SAMR_USER_PWLEN	256
 struct samr_user_password {
-	smb_wchar_t	Buffer[SAMR_USER_PWLEN];
+	ndr_wchar_t	Buffer[SAMR_USER_PWLEN];
 	DWORD Length;
 };
 #endif	/* NDRGEN */
@@ -488,6 +488,33 @@ struct samr_CloseHandle {
 
 /*
  ***********************************************************************
+ * QuerySecObject
+ *
+ * Returns the SecurityDescriptor of the object. Support not complete.
+ *
+ * QuerySecObject (
+ *	IN samr_handle_t obj_handle,
+ *	IN SECURITY_INFO secinfo,
+ *	OUT samr_sd_t *sd,
+ *	OUT DWORD status
+ * )
+ *
+ ***********************************************************************
+ */
+
+typedef DWORD SECURITY_INFO;
+
+OPERATION(SAMR_OPNUM_QuerySecObject)
+struct samr_QuerySecObject {
+	IN	samr_handle_t obj_handle;
+	IN	SECURITY_INFO secinfo;
+	OUT	samr_sd_t *sd;
+	OUT	DWORD status;
+};
+
+
+/*
+ ***********************************************************************
  * LookupDomain: lookup up the domain SID.
  ***********************************************************************
  */
@@ -540,7 +567,7 @@ struct samr_EnumLocalDomain {
 /*
  ***********************************************************************
  * OpenDomain
- * 
+ *
  * Open a specific domain within the SAM. From this I assume that each
  * SAM can handle multiple domains so you need to identify the one with
  * which you want to work. Working with a domain handle does appear to
@@ -635,25 +662,31 @@ struct samr_QueryInfoDomain2 {
 	OUT	DWORD		status;
 };
 
-#define SAMR_QUERY_ALIAS_INFO_1			1
-#define SAMR_QUERY_ALIAS_INFO_3			3
+#define SAMR_QUERY_ALIAS_INFO_GENERAL		1
+#define SAMR_QUERY_ALIAS_INFO_NAME		2
+#define SAMR_QUERY_ALIAS_INFO_COMMENT		3
 
-
-struct samr_QueryAliasInfo1 {
+struct samr_QueryAliasInfoGeneral {
 	WORD level;
 	samr_string_t name;
-	DWORD unknown;
+	DWORD member_count;
 	samr_string_t desc;
 };
 
-struct samr_QueryAliasInfo3 {
+struct samr_QueryAliasInfoName {
+	WORD level;
+	samr_string_t name;
+};
+
+struct samr_QueryAliasInfoComment {
 	WORD level;
 	samr_string_t desc;
 };
 
 union samr_QueryAliasInfo_ru {
-	UNION_INFO_ENT(1,samr_QueryAliasInfo);
-	UNION_INFO_ENT(3,samr_QueryAliasInfo);
+	CASE(1) struct samr_QueryAliasInfoGeneral info1;
+	CASE(2) struct samr_QueryAliasInfoName    info2;
+	CASE(3) struct samr_QueryAliasInfoComment info3;
 	DEFAULT	char *nullptr;
 };
 
@@ -877,7 +910,7 @@ struct samr_DeleteUser {
  * offsets used by the unmarshalling code at runtime.  In order to
  * simplify things it is useful to use a naming convention that
  * indicates the switch value for each structure.
- * 
+ *
  ***********************************************************************
  */
 
@@ -1386,6 +1419,8 @@ union samr_interface {
 		struct samr_Connect		Connect;
 	CASE(SAMR_OPNUM_CloseHandle)
 		struct samr_CloseHandle		CloseHandle;
+	CASE(SAMR_OPNUM_QuerySecObject)
+		struct samr_QuerySecObject	QuerySecObject;
 	CASE(SAMR_OPNUM_LookupDomain)
 		struct samr_LookupDomain	LookupDomain;
 	CASE(SAMR_OPNUM_EnumLocalDomains)

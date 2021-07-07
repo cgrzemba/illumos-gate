@@ -20,7 +20,8 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <sys/types.h>
@@ -63,9 +64,6 @@ static int smb_drv_getinfo(dev_info_t *, ddi_info_cmd_t, void *, void **);
  * environment. When in doubt use 37KB.
  */
 int	smb_maxbufsize = SMB_NT_MAXBUF;
-int	smb_oplock_levelII = 1;
-int	smb_oplock_timeout = OPLOCK_STD_TIMEOUT;
-int	smb_oplock_min_timeout = OPLOCK_MIN_TIMEOUT;
 int	smb_flush_required = 1;
 int	smb_dirsymlink_enable = 1;
 int	smb_sign_debug = 0;
@@ -77,11 +75,13 @@ uint_t	smb_audit_flags =
     0;
 #endif
 
+int smb_allow_advisory_locks = 0;	/* See smb_vops.c */
+
 /*
  * Maximum number of simultaneous authentication, share mapping, pipe open
  * requests to be processed.
  */
-int	smb_ssetup_threshold = 256;
+int	smb_ssetup_threshold = SMB_AUTHSVC_MAXTHREAD;
 int	smb_tcon_threshold = 1024;
 int	smb_opipe_threshold = 1024;
 
@@ -183,7 +183,7 @@ _init(void)
 	}
 
 	if ((rc = mod_install(&modlinkage)) != 0) {
-		(void) smb_server_g_fini();
+		smb_server_g_fini();
 	}
 
 	return (rc);
@@ -200,8 +200,11 @@ _fini(void)
 {
 	int	rc;
 
+	if (smb_server_get_count() != 0)
+		return (EBUSY);
+
 	if ((rc = mod_remove(&modlinkage)) == 0) {
-		rc = smb_server_g_fini();
+		smb_server_g_fini();
 	}
 
 	return (rc);
@@ -244,7 +247,14 @@ smb_drv_open(dev_t *devp, int flag, int otyp, cred_t *cr)
 static int
 smb_drv_close(dev_t dev, int flag, int otyp, cred_t *credp)
 {
-	return (smb_server_delete());
+	smb_server_t	*sv;
+	int		rc;
+
+	rc = smb_server_lookup(&sv);
+	if (rc == 0)
+		rc = smb_server_delete(sv);
+
+	return (rc);
 }
 
 /* ARGSUSED */
@@ -257,20 +267,49 @@ smb_drv_ioctl(dev_t drv, int cmd, intptr_t argp, int flags, cred_t *cred,
 	uint32_t	crc;
 	boolean_t	copyout = B_FALSE;
 	int		rc = 0;
+	size_t		alloclen;
 
-	if (ddi_copyin((const void *)argp, &ioc_hdr, sizeof (smb_ioc_header_t),
-	    flags) || (ioc_hdr.version != SMB_IOC_VERSION))
+	if (ddi_copyin((void *)argp, &ioc_hdr, sizeof (ioc_hdr), flags))
 		return (EFAULT);
+
+	/*
+	 * Check version and length.
+	 *
+	 * Note that some ioctls (i.e. SMB_IOC_SVCENUM) have payload
+	 * data after the ioctl struct, in which case they specify a
+	 * length much larger than sizeof smb_ioc_t.  The theoretical
+	 * largest ioctl data is therefore the size of the union plus
+	 * the max size of the payload (which is SMB_IOC_DATA_SIZE).
+	 */
+	if (ioc_hdr.version != SMB_IOC_VERSION ||
+	    ioc_hdr.len < sizeof (ioc_hdr) ||
+	    ioc_hdr.len > (sizeof (*ioc) + SMB_IOC_DATA_SIZE))
+		return (EINVAL);
 
 	crc = ioc_hdr.crc;
 	ioc_hdr.crc = 0;
 	if (smb_crc_gen((uint8_t *)&ioc_hdr, sizeof (ioc_hdr)) != crc)
-		return (EFAULT);
+		return (EINVAL);
 
-	ioc = kmem_alloc(ioc_hdr.len, KM_SLEEP);
-	if (ddi_copyin((const void *)argp, ioc, ioc_hdr.len, flags)) {
-		kmem_free(ioc, ioc_hdr.len);
+	/*
+	 * Note that smb_ioc_t is a union, and callers set ioc_hdr.len
+	 * to the size of the actual union arm.  If some caller were to
+	 * set that size too small, we could end up passing under-sized
+	 * memory to one of the type-specific handler functions.  Avoid
+	 * that problem by allocating at least the size of the union,
+	 * (zeroed out) and then copy in the caller specified length.
+	 */
+	alloclen = MAX(ioc_hdr.len, sizeof (*ioc));
+	ioc = kmem_zalloc(alloclen, KM_SLEEP);
+	if (ddi_copyin((void *)argp, ioc, ioc_hdr.len, flags)) {
+		kmem_free(ioc, alloclen);
 		return (EFAULT);
+	}
+
+	/* Don't allow the request size to change mid-ioctl */
+	if (ioc_hdr.len != ioc->ioc_hdr.len) {
+		kmem_free(ioc, alloclen);
+		return (EINVAL);
 	}
 
 	switch (cmd) {
@@ -322,11 +361,10 @@ smb_drv_ioctl(dev_t drv, int cmd, intptr_t argp, int flags, cred_t *cred,
 		break;
 	}
 	if ((rc == 0) && copyout) {
-		if (ddi_copyout((const void *)ioc, (void *)argp, ioc_hdr.len,
-		    flags))
+		if (ddi_copyout(ioc, (void *)argp, ioc_hdr.len, flags))
 			rc = EFAULT;
 	}
-	kmem_free(ioc, ioc_hdr.len);
+	kmem_free(ioc, alloclen);
 	return (rc);
 }
 

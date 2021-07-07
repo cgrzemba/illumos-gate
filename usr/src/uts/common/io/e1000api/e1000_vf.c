@@ -1,6 +1,6 @@
 /******************************************************************************
 
-  Copyright (c) 2001-2014, Intel Corporation 
+  Copyright (c) 2001-2015, Intel Corporation 
   All rights reserved.
   
   Redistribution and use in source and binary forms, with or without 
@@ -487,8 +487,10 @@ s32 e1000_promisc_set_vf(struct e1000_hw *hw, enum e1000_promisc_type type)
 		break;
 	case e1000_promisc_enabled:
 		msgbuf |= E1000_VF_SET_PROMISC_MULTICAST;
+		/* FALLTHROUGH */
 	case e1000_promisc_unicast:
 		msgbuf |= E1000_VF_SET_PROMISC_UNICAST;
+		/* FALLTHROUGH */
 	case e1000_promisc_disabled:
 		break;
 	default:

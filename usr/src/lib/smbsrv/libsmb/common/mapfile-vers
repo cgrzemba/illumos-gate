@@ -19,7 +19,7 @@
 #
 #
 # Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
+# Copyright 2020 Tintri by DDN, Inc. All rights reserved.
 #
 
 #
@@ -75,13 +75,13 @@ SYMBOL_VERSION SUNWprivate {
 	smb_acl_to_zfs;
 	smb_auth_DES;
 	smb_auth_RC4;
-	smb_auth_gen_session_key;
 	smb_auth_hmac_md5;
 	smb_auth_ntlm_hash;
+	smb_auth_ntlm2_kxkey;
+	smb_auth_ntlm2_mkchallenge;
 	smb_auth_ntlmv2_hash;
 	smb_auth_qnd_unicode;
-	smb_auth_validate_lm;
-	smb_auth_validate_nt;
+	smb_auth_validate;
 	smb_buf32_xdr;
 	smb_cache_add;
 	smb_cache_create;
@@ -93,10 +93,12 @@ SYMBOL_VERSION SUNWprivate {
 	smb_cache_ready;
 	smb_cache_refreshing;
 	smb_cache_remove;
+	smb_cfg_set_require;
 	smb_chk_hostaccess;
 	smb_codepage_init;
 	smb_common_decode;
 	smb_common_encode;
+	smb_config_check_protocol;
 	smb_config_get;
 	smb_config_get_ads_enable;
 	smb_config_get_debug;
@@ -121,12 +123,14 @@ SYMBOL_VERSION SUNWprivate {
 	smb_config_setdomaininfo;
 	smb_config_setnum;
 	smb_config_setstr;
+	smb_config_upgrade;
 	smb_crc_gen;
 	smb_ctxbuf_init;
 	smb_ctxbuf_len;
 	smb_ctxbuf_printf;
 	smb_dlclose;
 	smb_dlopen;
+	smb_domain_bad_dc;
 	smb_domain_current_dc;
 	smb_domain_end_update;
 	smb_domain_fini;
@@ -181,6 +185,7 @@ SYMBOL_VERSION SUNWprivate {
 	smb_gen_random_passwd;
 	smb_get_dcinfo;
 	smb_get_nameservers;
+	smb_get_netlogon_flags;
 	smb_get_txid;
 	smb_getdataset;
 	smb_getdomainname;
@@ -196,6 +201,7 @@ SYMBOL_VERSION SUNWprivate {
 	smb_gmttoken_response_xdr;
 	smb_gmttoken_snapname_xdr;
 	smb_joininfo_xdr;
+	smb_joinres_xdr;
 	smb_idmap_batch_create;
 	smb_idmap_batch_destroy;
 	smb_idmap_batch_getid;
@@ -263,15 +269,12 @@ SYMBOL_VERSION SUNWprivate {
 	smb_logon_decode;
 	smb_logon_free;
 	smb_logon_xdr;
+	smb_lookup_lname;
+	smb_lookup_lsid;
 	smb_lookup_name;
 	smb_lookup_sid;
-	smb_mac_chk;
-	smb_mac_dec_seqnum;
-	smb_mac_inc_seqnum;
-	smb_mac_init;
-	smb_mac_sign;
 	smb_match_netlogon_seqnum;
-	smb_mbstos;
+	smb_mbstooem;
 	smb_mbstowcs;
 	smb_mbtowc;
 	smb_msgbuf_base;
@@ -309,6 +312,8 @@ SYMBOL_VERSION SUNWprivate {
 	smb_nic_getnext;
 	smb_nic_getnum;
 	smb_nic_init;
+	smb_notify_dc_changed;
+	smb_oemtombs;
 	smb_priv_getbyname;
 	smb_priv_getbyvalue;
 	smb_priv_presentable_ids;
@@ -376,7 +381,6 @@ SYMBOL_VERSION SUNWprivate {
 	smb_smf_restart_service;
 	smb_smf_scf_fini;
 	smb_smf_scf_init;
-	smb_stombs;
 	smb_strcasecmp;
 	smb_string_decode;
 	smb_string_encode;

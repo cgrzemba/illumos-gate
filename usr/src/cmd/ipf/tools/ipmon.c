@@ -9,9 +9,13 @@
  * Copyright (c) 2014, Joyent, Inc.  All rights reserved.
  */
 
-
-#ifndef SOLARIS
-#define SOLARIS (defined(__SVR4) || defined(__svr4__)) && defined(sun)
+#ifdef SOLARIS
+#undef	SOLARIS
+#endif
+#if (defined(sun) && (defined(__svr4__) || defined(__SVR4)))
+#define	SOLARIS	(1)
+#else
+#define	SOLARIS	(0)
 #endif
 
 #include <sys/types.h>
@@ -130,10 +134,10 @@ struct	flags	tcpfl[] = {
 	{ 0, '\0' }
 };
 
-#if defined(__hpux) || (SOLARIS && (SOLARIS2 < 10))
+#if defined(__hpux) || (defined(SOLARIS) && (SOLARIS2 < 10))
 static	char	*pidfile = "/etc/ipf/ipmon.pid";
 #else
-# if (BSD >= 199306) || SOLARIS
+# if (BSD >= 199306) || defined(SOLARIS)
 static	char	*pidfile = "/var/run/ipmon.pid";
 # else
 static	char	*pidfile = "/etc/ipmon.pid";

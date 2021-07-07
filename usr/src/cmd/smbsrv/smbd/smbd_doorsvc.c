@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2019 Nexenta Systems, Inc.  All rights reserved.
  */
 
 #include <sys/list.h>
@@ -38,6 +38,7 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <strings.h>
+#include <note.h>
 #include <smbsrv/smb_door.h>
 #include <smbsrv/smb_xdr.h>
 #include <smbsrv/smb_token.h>
@@ -74,6 +75,7 @@ static int smbd_dop_quota_set(smbd_arg_t *);
 static int smbd_dop_dfs_get_referrals(smbd_arg_t *);
 static int smbd_dop_shr_hostaccess(smbd_arg_t *);
 static int smbd_dop_shr_exec(smbd_arg_t *);
+static int smbd_dop_notify_dc_changed(smbd_arg_t *);
 
 typedef int (*smbd_dop_t)(smbd_arg_t *);
 
@@ -100,7 +102,10 @@ smbd_doorop_t smbd_doorops[] = {
 	{ SMB_DR_QUOTA_SET,		smbd_dop_quota_set },
 	{ SMB_DR_DFS_GET_REFERRALS,	smbd_dop_dfs_get_referrals },
 	{ SMB_DR_SHR_HOSTACCESS,	smbd_dop_shr_hostaccess },
-	{ SMB_DR_SHR_EXEC,		smbd_dop_shr_exec }
+	{ SMB_DR_SHR_EXEC,		smbd_dop_shr_exec },
+	{ SMB_DR_NOTIFY_DC_CHANGED,	smbd_dop_notify_dc_changed },
+	{ SMB_DR_LOOKUP_LSID,		smbd_dop_lookup_sid },
+	{ SMB_DR_LOOKUP_LNAME,		smbd_dop_lookup_name }
 };
 
 static int smbd_ndoorop = (sizeof (smbd_doorops) / sizeof (smbd_doorops[0]));
@@ -572,29 +577,16 @@ smbd_dop_user_auth_logoff(smbd_arg_t *arg)
 static int
 smbd_dop_user_auth_logon(smbd_arg_t *arg)
 {
-	smb_logon_t	*user_info;
-	smb_token_t	*token;
+	_NOTE(ARGUNUSED(arg))
 
-	user_info = smb_logon_decode((uint8_t *)arg->data,
-	    arg->datalen);
-	if (user_info == NULL)
-		return (SMB_DOP_DECODE_ERROR);
-
-	token = smbd_user_auth_logon(user_info);
-
-	smb_logon_free(user_info);
-
-	if (token == NULL)
-		return (SMB_DOP_EMPTYBUF);
-
-	arg->rbuf = (char *)smb_token_encode(token, &arg->rsize);
-	smb_token_destroy(token);
-
-	if (arg->rbuf == NULL)
-		return (SMB_DOP_ENCODE_ERROR);
-	return (SMB_DOP_SUCCESS);
+	/* No longer used */
+	return (SMB_DOP_EMPTYBUF);
 }
 
+/*
+ * SMB_DR_LOOKUP_NAME,
+ * SMB_DR_LOOKUP_LNAME (local-only, for idmap)
+ */
 static int
 smbd_dop_lookup_name(smbd_arg_t *arg)
 {
@@ -618,7 +610,24 @@ smbd_dop_lookup_name(smbd_arg_t *arg)
 		(void) snprintf(buf, MAXNAMELEN, "%s\\%s", acct.a_domain,
 		    acct.a_name);
 
-	acct.a_status = lsa_lookup_name(buf, acct.a_sidtype, &ainfo);
+	switch (arg->hdr.dh_op) {
+	case SMB_DR_LOOKUP_NAME:
+		acct.a_status = lsa_lookup_name(buf, acct.a_sidtype, &ainfo);
+		break;
+
+	case SMB_DR_LOOKUP_LNAME:
+		/*
+		 * Basically for idmap.  Don't call out to AD.
+		 */
+		acct.a_status = lsa_lookup_lname(buf, acct.a_sidtype, &ainfo);
+		break;
+
+	default:
+		assert(!"arg->hdr.dh_op");
+		acct.a_status = NT_STATUS_INTERNAL_ERROR;
+		break;
+	}
+
 	if (acct.a_status == NT_STATUS_SUCCESS) {
 		acct.a_sidtype = ainfo.a_type;
 		smb_sid_tostr(ainfo.a_sid, acct.a_sid);
@@ -640,6 +649,10 @@ smbd_dop_lookup_name(smbd_arg_t *arg)
 	return (SMB_DOP_SUCCESS);
 }
 
+/*
+ * SMB_DR_LOOKUP_SID,
+ * SMB_DR_LOOKUP_LSID (local-only, for idmap)
+ */
 static int
 smbd_dop_lookup_sid(smbd_arg_t *arg)
 {
@@ -655,7 +668,25 @@ smbd_dop_lookup_sid(smbd_arg_t *arg)
 		return (SMB_DOP_DECODE_ERROR);
 
 	sid = smb_sid_fromstr(acct.a_sid);
-	acct.a_status = lsa_lookup_sid(sid, &ainfo);
+
+	switch (arg->hdr.dh_op) {
+	case SMB_DR_LOOKUP_SID:
+		acct.a_status = lsa_lookup_sid(sid, &ainfo);
+		break;
+
+	case SMB_DR_LOOKUP_LSID:
+		/*
+		 * Basically for idmap.  Don't call out to AD.
+		 */
+		acct.a_status = lsa_lookup_lsid(sid, &ainfo);
+		break;
+
+	default:
+		assert(!"arg->hdr.dh_op");
+		acct.a_status = NT_STATUS_INTERNAL_ERROR;
+		break;
+	}
+
 	smb_sid_free(sid);
 
 	if (acct.a_status == NT_STATUS_SUCCESS) {
@@ -684,17 +715,18 @@ static int
 smbd_dop_join(smbd_arg_t *arg)
 {
 	smb_joininfo_t	jdi;
-	uint32_t	status;
+	smb_joinres_t	jdres;
 
 	bzero(&jdi, sizeof (smb_joininfo_t));
+	bzero(&jdres, sizeof (smb_joinres_t));
 
 	if (smb_common_decode(arg->data, arg->datalen,
 	    smb_joininfo_xdr, &jdi) != 0)
 		return (SMB_DOP_DECODE_ERROR);
 
-	status = smbd_join(&jdi);
+	smbd_join(&jdi, &jdres);
 
-	arg->rbuf = smb_common_encode(&status, xdr_uint32_t, &arg->rsize);
+	arg->rbuf = smb_common_encode(&jdres, smb_joinres_xdr, &arg->rsize);
 
 	if (arg->rbuf == NULL)
 		return (SMB_DOP_ENCODE_ERROR);
@@ -709,7 +741,7 @@ smbd_dop_get_dcinfo(smbd_arg_t *arg)
 	if (!smb_domain_getinfo(&dxi))
 		return (SMB_DOP_EMPTYBUF);
 
-	arg->rbuf = smb_string_encode(dxi.d_dc, &arg->rsize);
+	arg->rbuf = smb_string_encode(dxi.d_dci.dc_name, &arg->rsize);
 
 	if (arg->rbuf == NULL)
 		return (SMB_DOP_ENCODE_ERROR);
@@ -815,11 +847,11 @@ smbd_dop_vss_map_gmttoken(smbd_arg_t *arg)
 
 	if ((snapname = malloc(MAXPATHLEN)) == NULL) {
 		xdr_free(smb_gmttoken_snapname_xdr, (char *)&request);
-		return (NULL);
+		return (SMB_DOP_ENCODE_ERROR);
 	}
 
 	if ((smbd_vss_map_gmttoken(request.gts_path, request.gts_gmttoken,
-	    snapname) != 0)) {
+	    request.gts_toktime, snapname) != 0)) {
 		*snapname = '\0';
 	}
 
@@ -844,7 +876,7 @@ smbd_dop_ads_find_host(smbd_arg_t *arg)
 	if (smb_string_decode(&fqdn, arg->data, arg->datalen) != 0)
 		return (SMB_DOP_DECODE_ERROR);
 
-	if ((hinfo = smb_ads_find_host(fqdn.buf, NULL)) != NULL)
+	if ((hinfo = smb_ads_find_host(fqdn.buf)) != NULL)
 		hostname = hinfo->name;
 
 	xdr_free(smb_string_xdr, (char *)&fqdn);
@@ -995,5 +1027,15 @@ smbd_dop_shr_exec(smbd_arg_t *arg)
 
 	if (arg->rbuf == NULL)
 		return (SMB_DOP_ENCODE_ERROR);
+	return (SMB_DOP_SUCCESS);
+}
+
+/* ARGSUSED */
+static int
+smbd_dop_notify_dc_changed(smbd_arg_t *arg)
+{
+
+	smbd_dc_monitor_refresh();
+
 	return (SMB_DOP_SUCCESS);
 }

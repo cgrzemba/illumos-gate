@@ -9,9 +9,9 @@
 .\" http://www.illumos.org/license/CDDL.
 .\"
 .\"
-.\" Copyright 2015 Joyent, Inc.
+.\" Copyright 2016 Joyent, Inc.
 .\"
-.Dd May 08, 2015
+.Dd Mar 13, 2016
 .Dt AVL 9F
 .Os
 .Sh NAME
@@ -28,9 +28,10 @@
 .Nm avl_last ,
 .Nm avl_nearest ,
 .Nm avl_numnodes ,
+.Nm avl_remove ,
 .Nm avl_swap ,
 .Nm AVL_NEXT ,
-.Nm AVL_PREV ,
+.Nm AVL_PREV
 .Nd AVL tree routines
 .Sh DESCRIPTION
 AVL trees are a general purpose, self-balancing binary tree that can be
@@ -43,10 +44,10 @@ The AVL tree interfaces are identical in both userland and the kernel.
 For more general information on AVL trees, see
 .Xr libavl 3LIB .
 For more information on any of the funtions defined here, please see the
-corresponding manual page in section 3AVL. Please note, that while
-the descriptions in those manual pages are accurate for writers of
-Device Drivers, the examples provided use scaffolding not available in
-the kernel, such as the use of
+corresponding manual page in section 3AVL.
+Please note, that while the descriptions in those manual pages are accurate for
+writers of Device Drivers, the examples provided use scaffolding not available
+in the kernel, such as the use of
 .Fn malloc ,
 and need to be adapated.
 .Sh CONTEXT
@@ -61,13 +62,13 @@ in
 .Sy Committed
 .Sh MT-Safety
 AVL trees do not inherently have any internal locking, it is up to the
-consumer to use locks as appropriate. See
+consumer to use locks as appropriate.
+See
 .Xr mutex 9F
 and
 .Xr rwlock 9F
 for more information on synchronization primitives.
 .Sh SEE ALSO
-.Xr libavl 3LIB ,
 .Xr avl_add 3AVL ,
 .Xr avl_create 3AVL ,
 .Xr avl_destroy 3AVL ,
@@ -79,10 +80,12 @@ for more information on synchronization primitives.
 .Xr avl_is_empty 3AVL ,
 .Xr avl_last 3AVL ,
 .Xr avl_nearest 3AVL ,
-.Xr avl_numnodes 3AVL ,
-.Xr avl_swap 3AVL ,
 .Xr AVL_NEXT 3AVL ,
+.Xr avl_numnodes 3AVL ,
 .Xr AVL_PREV 3AVL ,
+.Xr avl_remove 3AVL ,
+.Xr avl_swap 3AVL ,
+.Xr libavl 3LIB
 .Rs
 .%T Writing Device Drivers
 .Re

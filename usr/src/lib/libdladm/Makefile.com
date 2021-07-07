@@ -20,48 +20,40 @@
 #
 #
 # Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
+# Copyright (c) 2018, Joyent, Inc.
 #
 
 LIBRARY = libdladm.a
 VERS    = .1
-OBJECTS = libdladm.o linkprop.o libdllink.o libdlaggr.o secobj.o eap_pk11.o \
-	wpa_ie.o wpa_ctrl.o libdlwlan.o libdlvnic.o libdlmgmt.o libdlvlan.o \
-	libdlib.o flowattr.o flowprop.o propfuncs.o libdlflow.o libdlstat.o \
+OBJECTS = libdladm.o secobj.o linkprop.o libdllink.o libdlaggr.o \
+	libdlwlan.o libdlvnic.o libdlmgmt.o libdlvlan.o	libdlib.o\
+	flowattr.o flowprop.o propfuncs.o libdlflow.o libdlstat.o \
 	usage.o libdlether.o libdlsim.o libdlbridge.o libdliptun.o
 
 include ../../Makefile.lib
 
-include	../Makefile.wpactrl
-
 # install this library in the root filesystem
 include ../../Makefile.rootfs
 
-LIBS =		$(DYNLIB) $(LINTLIB)
+LIBS =		$(DYNLIB)
 LDLIBS +=	-ldevinfo -lc -linetutil -lsocket -lscf -lrcm -lnvpair \
-		-lexacct -lnsl -lkstat -lcurses -lpool -lkmf -lcryptoutil
+		-lexacct -lkstat -lpool
 
 SRCDIR =	../common
-$(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
-
-# skip wpa_ctrl.c and wpa_ie.c
-lintcheck :=	SRCS = ../common/libdladm.c ../common/linkprop.c \
-	../common/libdllink.c ../common/libdlaggr.c ../common/secobj.c \
-	../common/eap_pk11.c  ../common/libdlwlan.c ../common/libdlvnic.c \
-	../common/libdlmgmt.c ../common/libdlvlan.c  ../common/libdlib.c \
-	../common/flowattr.c ../common/flowprop.c ../common/propfuncs.c \
-	../common/libdlflow.c ../common/libdlstat.c  ../common/usage.c \
-	../common/libdlether.c ../common/libdlsim.c ../common/libdlbridge.c \
-	../common/libdliptun.c
 
 CFLAGS +=	$(CCVERBOSE)
-CERRWARN +=     -_gcc=-Wno-uninitialized
+CERRWARN +=	-_gcc=-Wno-parentheses
+CERRWARN +=	-_gcc=-Wno-switch
+CERRWARN +=	-_gcc=-Wno-unused-label
+CERRWARN +=	$(CNOWARN_UNINIT)
 CPPFLAGS +=	-I$(SRCDIR) -D_REENTRANT
+
+# not linted
+SMATCH=off
 
 .KEEP_STATE:
 
 all:		$(LIBS)
 
-lint:		lintcheck
 
 include $(SRC)/lib/Makefile.targ

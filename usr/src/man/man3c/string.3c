@@ -1,19 +1,54 @@
-'\" te
-.\" Copyright 2014 Garrett D'Amore <garrett@damore.org>
-.\" Copyright (c) 2014, Joyent, Inc.
-.\" Copyright (c) 2008, Sun Microsystems, Inc.  All Rights Reserved.
+.\"
+.\" Sun Microsystems, Inc. gratefully acknowledges The Open Group for
+.\" permission to reproduce portions of its copyrighted documentation.
+.\" Original documentation from The Open Group can be obtained online at
+.\" http://www.opengroup.org/bookstore/.
+.\"
+.\" The Institute of Electrical and Electronics Engineers and The Open
+.\" Group, have given us permission to reprint portions of their
+.\" documentation.
+.\"
+.\" In the following statement, the phrase ``this text'' refers to portions
+.\" of the system documentation.
+.\"
+.\" Portions of this text are reprinted and reproduced in electronic form
+.\" in the SunOS Reference Manual, from IEEE Std 1003.1, 2004 Edition,
+.\" Standard for Information Technology -- Portable Operating System
+.\" Interface (POSIX), The Open Group Base Specifications Issue 6,
+.\" Copyright (C) 2001-2004 by the Institute of Electrical and Electronics
+.\" Engineers, Inc and The Open Group.  In the event of any discrepancy
+.\" between these versions and the original IEEE and The Open Group
+.\" Standard, the original IEEE and The Open Group Standard is the referee
+.\" document.  The original Standard can be obtained online at
+.\" http://www.opengroup.org/unix/online.html.
+.\"
+.\" This notice shall appear on any product containing this material.
+.\"
+.\" The contents of this file are subject to the terms of the
+.\" Common Development and Distribution License (the "License").
+.\" You may not use this file except in compliance with the License.
+.\"
+.\" You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+.\" or http://www.opensolaris.org/os/licensing.
+.\" See the License for the specific language governing permissions
+.\" and limitations under the License.
+.\"
+.\" When distributing Covered Code, include this CDDL HEADER in each
+.\" file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+.\" If applicable, add the following below this CDDL HEADER, with the
+.\" fields enclosed by brackets "[]" replaced with your own identifying
+.\" information: Portions Copyright [yyyy] [name of copyright owner]
+.\"
+.\"
 .\" Copyright 1989 AT&T
+.\" Portions Copyright (c) 1992, X/Open Company Limited.  All Rights Reserved.
 .\" Portions Copyright (c) 1994 Man-cgi 1.15, Panagiotis Christias (christia@softlab.ntua.gr)
 .\" Portions Copyright (c) 1996-2008 Modified for NetBSD by Kimmo Suominen (kimmo@suominen.com)
-.\" Portions Copyright (c) 1992, X/Open Company Limited.  All Rights Reserved.
-.\" Sun Microsystems, Inc. gratefully acknowledges The Open Group for permission to reproduce portions of its copyrighted documentation. Original documentation from The Open Group can be obtained online at
-.\" http://www.opengroup.org/bookstore/.
-.\" The Institute of Electrical and Electronics Engineers and The Open Group, have given us permission to reprint portions of their documentation. In the following statement, the phrase "this text" refers to portions of the system documentation. Portions of this text are reprinted and reproduced in electronic form in the Sun OS Reference Manual, from IEEE Std 1003.1, 2004 Edition, Standard for Information Technology -- Portable Operating System Interface (POSIX), The Open Group Base Specifications Issue 6, Copyright (C) 2001-2004 by the Institute of Electrical and Electronics Engineers, Inc and The Open Group. In the event of any discrepancy between these versions and the original IEEE and The Open Group Standard, the original IEEE and The Open Group Standard is the referee document. The original Standard can be obtained online at http://www.opengroup.org/unix/online.html.
-.\"  This notice shall appear on any product containing this material.
-.\" The contents of this file are subject to the terms of the Common Development and Distribution License (the "License").  You may not use this file except in compliance with the License.
-.\" You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE or http://www.opensolaris.org/os/licensing.  See the License for the specific language governing permissions and limitations under the License.
-.\" When distributing Covered Code, include this CDDL HEADER in each file and include the License file at usr/src/OPENSOLARIS.LICENSE.  If applicable, add the following below this CDDL HEADER, with the fields enclosed by brackets "[]" replaced with your own identifying information: Portions Copyright [yyyy] [name of copyright owner]
-.TH STRING 3C "Dec 20, 2014"
+.\" Copyright (c) 2008, Sun Microsystems, Inc.  All Rights Reserved.
+.\" Copyright 2014 Garrett D'Amore <garrett@damore.org>
+.\" Copyright (c) 2014, Joyent, Inc.
+.\"
+.TH STRING 3C "Mar 23, 2016"
 .SH NAME
 string, strcasecmp, strcasecmp_l, strncasecmp, strncasecmp_l, strcat, strncat,
 strlcat, strchr, strchrnul, strrchr, strcmp, strncmp, stpcpy, stpncpy, strcpy,
@@ -232,11 +267,12 @@ the current locale, they instead operate in the locale specified by \fIloc\fR.
 .LP
 The \fBstrcat()\fR function appends a copy of string \fIs2\fR, including the
 terminating null character, to the end of string \fIs1\fR. The \fBstrncat()\fR
-function appends at most \fIn\fR characters. Each returns a pointer to the
-null-terminated result. The initial character of  \fIs2\fR overrides the null
-character at the end of \fIs1\fR. If copying takes place between objects that
-overlap, the behavior of \fBstrcat()\fR, \fBstrncat()\fR, and \fBstrlcat()\fR
-is undefined.
+function appends at most \fIn\fR characters of \fIs2\fR to \fIs1\fR, not
+including any terminating null character, and then appends a null character.
+Each returns a pointer to the null-terminated result. The initial character of
+\fIs2\fR overrides the null character at the end of \fIs1\fR. If copying takes
+place between objects that overlap, the behavior of \fBstrcat()\fR,
+\fBstrncat()\fR, and \fBstrlcat()\fR is undefined.
 .LP
 The \fBstrlcat()\fR function appends  at most
 (\fIdstsize\fR-\fBstrlen\fR(\fIdst\fR)-1) characters of \fIsrc\fR to \fIdst\fR
@@ -285,9 +321,10 @@ The \fBstrcpy()\fR function copies string \fIs2\fR to \fIs1\fR, including the
 terminating null character, stopping after the null character has been copied.
 The \fBstrncpy()\fR function copies exactly \fIn\fR bytes, truncating \fIs2\fR
 or adding null characters to \fIs1\fR if necessary. The result will not be
-null-terminated if the length of \fIs2\fR is \fIn\fR or more. Each function
-returns \fIs1\fR.  If copying takes place between objects that overlap, the
-behavior of \fBstrcpy()\fR, \fBstrncpy()\fR, and \fBstrlcpy()\fR is undefined.
+null-terminated if the length of \fIs2\fR is \fIn\fR or more. Both the
+\fBstrcpy()\fR and \fBstrncpy()\fR functions return \fIs1\fR. If copying takes
+place between objects that overlap, the behavior of \fBstrcpy()\fR,
+\fBstrncpy()\fR, and \fBstrlcpy()\fR is undefined.
 .LP
 The \fBstrlcpy()\fR function copies  at most \fIdstsize\fR\(mi1 characters
 (\fIdstsize\fR being the  size of the  string buffer \fIdst\fR) from \fIsrc\fR
@@ -321,11 +358,11 @@ passed to \fBfree()\fR. The space for the new string is obtained using
 \fBmalloc\fR(3C). If the new string cannot be created, a null pointer is
 returned and \fBerrno\fR may be set to \fBENOMEM\fR to indicate that the
 storage space available is insufficient. The \fBstrndup()\fR function is
-identical to \fBstrdup()\fR, execept it copies at most \fIn\fR bytes from
-\fBs1\fR and ensures the copied string is awlays null terminated.
+identical to \fBstrdup()\fR, except it copies at most \fIn\fR bytes from
+\fBs1\fR and ensures the copied string is always null terminated.
 .LP
 The functions \fBstrdupa()\fR and \fBstrndupa()\fR behave identically to
-\fBstrdup()\fr and \fBstrndup()\fR respectively; however, instead of allocating
+\fBstrdup()\fR and \fBstrndup()\fR respectively; however, instead of allocating
 memory using \fBmalloc\fR(3C), they use \fBalloca\fR(3C). These functions are
 provided for compatibility only, their use is strongly discouraged due to their
 use of \fBalloca\fR(3C).
@@ -557,8 +594,8 @@ For all except \fBstrlcat()\fR, \fBstrlcpy()\fR, and \fBstrsep()\fR, see
 .SH SEE ALSO
 .LP
 \fBmalloc\fR(3C),
-\fBnewlocale(3C), \fBsetlocale\fR(3C), \fBstrxfrm\fR(3C), \fBuselocale\fR(3C),
-\fBattributes\fR(5), \fBstandards\fR(5)
+\fBnewlocale\fR(3C), \fBsetlocale\fR(3C), \fBstrxfrm\fR(3C),
+\fBuselocale\fR(3C), \fBattributes\fR(5), \fBstandards\fR(5)
 .SH NOTES
 .LP
 When compiling multithreaded applications, the \fB_REENTRANT\fR flag must be
