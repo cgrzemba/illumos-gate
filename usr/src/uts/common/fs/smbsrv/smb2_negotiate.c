@@ -11,7 +11,7 @@
 
 /*
  * Copyright 2019 Nexenta Systems, Inc.  All rights reserved.
- * Copyright 2020 RackTop Systems, Inc.
+ * Copyright 2021 RackTop Systems, Inc.
  */
 
 /*
@@ -487,13 +487,13 @@ smb31_decode_neg_ctxs(smb_request_t *sr, smb2_neg_ctxs_t *neg_ctxs)
 	switch (cipher) {
 	case SMB3_CIPHER_AES128_GCM:
 		if (encrypt_gcm_enabled) {
-			s->smb31_enc_cipherid = cipher;
+			s->smb31_enc_cipherid = SMB3_CIPHER_AES128_GCM;
 			break;
 		}
 		/* FALLTHROUGH */
 	case SMB3_CIPHER_AES128_CCM:
 		if (encrypt_ccm_enabled) {
-			s->smb31_enc_cipherid = cipher;
+			s->smb31_enc_cipherid = SMB3_CIPHER_AES128_CCM;
 			break;
 		}
 		/* FALLTHROUGH */
@@ -884,7 +884,6 @@ smb2_nego_validate(smb_request_t *sr, smb_fsctl_t *fsctl)
 	/*
 	 * The spec. says to parse the VALIDATE_NEGOTIATE_INFO here
 	 * and verify that the original negotiate was not modified.
-	 * The request MUST be signed, and we MUST validate the signature.
 	 *
 	 * One interesting requirement here is that we MUST reply
 	 * with exactly the same information as we returned in our
@@ -901,7 +900,13 @@ smb2_nego_validate(smb_request_t *sr, smb_fsctl_t *fsctl)
 	if (s->dialect >= SMB_VERS_3_11)
 		goto drop;
 
-	if ((sr->smb2_hdr_flags & SMB2_FLAGS_SIGNED) == 0)
+	/*
+	 * [MS-SMB2] 3.3.5.2.4 Verifying the Signature
+	 *
+	 * If the dialect is SMB3 and the message was successfully
+	 * decrypted we MUST skip processing of the signature.
+	 */
+	if (!sr->encrypted && (sr->smb2_hdr_flags & SMB2_FLAGS_SIGNED) == 0)
 		goto drop;
 
 	if (fsctl->InputCount < 24)

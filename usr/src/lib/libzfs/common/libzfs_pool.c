@@ -342,15 +342,23 @@ zpool_get_prop(zpool_handle_t *zhp, zpool_prop_t prop, char *buf, size_t len,
 		case ZPOOL_PROP_FRAGMENTATION:
 			if (intval == UINT64_MAX) {
 				(void) strlcpy(buf, "-", len);
+			} else if (literal) {
+				(void) snprintf(buf, len, "%llu",
+				    (u_longlong_t)intval);
 			} else {
 				(void) snprintf(buf, len, "%llu%%",
 				    (u_longlong_t)intval);
 			}
 			break;
 		case ZPOOL_PROP_DEDUPRATIO:
-			(void) snprintf(buf, len, "%llu.%02llux",
-			    (u_longlong_t)(intval / 100),
-			    (u_longlong_t)(intval % 100));
+			if (literal)
+				(void) snprintf(buf, len, "%llu.%02llu",
+				    (u_longlong_t)(intval / 100),
+				    (u_longlong_t)(intval % 100));
+			else
+				(void) snprintf(buf, len, "%llu.%02llux",
+				    (u_longlong_t)(intval / 100),
+				    (u_longlong_t)(intval % 100));
 			break;
 		case ZPOOL_PROP_HEALTH:
 			verify(nvlist_lookup_nvlist(zpool_get_config(zhp, NULL),
@@ -2786,10 +2794,9 @@ zpool_get_physpath(zpool_handle_t *zhp, char *physpath, size_t phypath_size)
  * the disk to use the new unallocated space.
  */
 static int
-zpool_relabel_disk(libzfs_handle_t *hdl, const char *name)
+zpool_relabel_disk(libzfs_handle_t *hdl, const char *name, const char *msg)
 {
 	char path[MAXPATHLEN];
-	char errbuf[1024];
 	int fd, error;
 	int (*_efi_use_whole_disk)(int);
 
@@ -2802,7 +2809,7 @@ zpool_relabel_disk(libzfs_handle_t *hdl, const char *name)
 	if ((fd = open(path, O_RDWR | O_NDELAY)) < 0) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "cannot "
 		    "relabel '%s': unable to open device"), name);
-		return (zfs_error(hdl, EZFS_OPENFAILED, errbuf));
+		return (zfs_error(hdl, EZFS_OPENFAILED, msg));
 	}
 
 	/*
@@ -2815,7 +2822,7 @@ zpool_relabel_disk(libzfs_handle_t *hdl, const char *name)
 	if (error && error != VT_ENOSPC) {
 		zfs_error_aux(hdl, dgettext(TEXT_DOMAIN, "cannot "
 		    "relabel '%s': unable to read disk capacity"), name);
-		return (zfs_error(hdl, EZFS_NOCAP, errbuf));
+		return (zfs_error(hdl, EZFS_NOCAP, msg));
 	}
 	return (0);
 }
@@ -2834,6 +2841,7 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 	nvlist_t *tgt;
 	boolean_t avail_spare, l2cache, islog;
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
+	int error;
 
 	if (flags & ZFS_ONLINE_EXPAND) {
 		(void) snprintf(msg, sizeof (msg),
@@ -2872,7 +2880,9 @@ zpool_vdev_online(zpool_handle_t *zhp, const char *path, int flags,
 
 		if (wholedisk) {
 			pathname += strlen(ZFS_DISK_ROOT) + 1;
-			(void) zpool_relabel_disk(hdl, pathname);
+			error = zpool_relabel_disk(hdl, pathname, msg);
+			if (error != 0)
+				return (error);
 		}
 	}
 

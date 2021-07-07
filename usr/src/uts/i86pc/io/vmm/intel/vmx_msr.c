@@ -29,6 +29,7 @@
  */
 /*
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2021 Oxide Computer Company
  */
 
 #include <sys/cdefs.h>
@@ -138,46 +139,62 @@ vmx_set_ctlreg(int ctl_reg, int true_ctl_reg, uint32_t ones_mask,
 }
 
 void
-msr_bitmap_initialize(char *bitmap)
+vmx_msr_bitmap_initialize(struct vmx *vmx)
 {
+	for (uint_t i = 0; i < VM_MAXCPU; i++) {
+		uint8_t *bitmap;
 
-	memset(bitmap, 0xff, PAGE_SIZE);
+		bitmap = kmem_alloc(PAGESIZE, KM_SLEEP);
+		VERIFY3U((uintptr_t)bitmap & PAGEOFFSET, ==, 0);
+		memset(bitmap, 0xff, PAGESIZE);
+
+		vmx->msr_bitmap[i] = bitmap;
+	}
 }
 
-int
-msr_bitmap_change_access(char *bitmap, uint_t msr, int access)
+void
+vmx_msr_bitmap_destroy(struct vmx *vmx)
 {
+	for (uint_t i = 0; i < VM_MAXCPU; i++) {
+		VERIFY3P(vmx->msr_bitmap[i], !=, NULL);
+		kmem_free(vmx->msr_bitmap[i], PAGESIZE);
+		vmx->msr_bitmap[i] = NULL;
+	}
+}
+
+void
+vmx_msr_bitmap_change_access(struct vmx *vmx, int vcpuid, uint_t msr, int acc)
+{
+	uint8_t *bitmap = vmx->msr_bitmap[vcpuid];
 	int byte, bit;
 
-	if (msr <= 0x00001FFF)
+	if (msr <= 0x00001FFF) {
 		byte = msr / 8;
-	else if (msr >= 0xC0000000 && msr <= 0xC0001FFF)
+	} else if (msr >= 0xC0000000 && msr <= 0xC0001FFF) {
 		byte = 1024 + (msr - 0xC0000000) / 8;
-	else
-		return (EINVAL);
+	} else {
+		panic("Invalid MSR for bitmap: %x", msr);
+	}
 
 	bit = msr & 0x7;
 
-	if (access & MSR_BITMAP_ACCESS_READ)
+	if (acc & MSR_BITMAP_ACCESS_READ) {
 		bitmap[byte] &= ~(1 << bit);
-	else
+	} else {
 		bitmap[byte] |= 1 << bit;
+	}
 
 	byte += 2048;
-	if (access & MSR_BITMAP_ACCESS_WRITE)
+	if (acc & MSR_BITMAP_ACCESS_WRITE) {
 		bitmap[byte] &= ~(1 << bit);
-	else
+	} else {
 		bitmap[byte] |= 1 << bit;
-
-	return (0);
+	}
 }
 
 static uint64_t misc_enable;
 static uint64_t platform_info;
 static uint64_t turbo_ratio_limit;
-#ifdef __FreeBSD__
-static uint64_t host_msrs[GUEST_MSR_NUM];
-#endif /* __FreeBSD__ */
 
 static bool
 nehalem_cpu(void)
@@ -252,18 +269,6 @@ vmx_msr_init(void)
 	uint64_t bus_freq, ratio;
 	int i;
 
-#ifdef __FreeBSD__
-	/* XXXJOY: Do we want to do this caching? */
-	/*
-	 * It is safe to cache the values of the following MSRs because
-	 * they don't change based on curcpu, curproc or curthread.
-	 */
-	host_msrs[IDX_MSR_LSTAR] = rdmsr(MSR_LSTAR);
-	host_msrs[IDX_MSR_CSTAR] = rdmsr(MSR_CSTAR);
-	host_msrs[IDX_MSR_STAR] = rdmsr(MSR_STAR);
-	host_msrs[IDX_MSR_SF_MASK] = rdmsr(MSR_SF_MASK);
-#endif /* __FreeBSD__ */
-
 	/*
 	 * Initialize emulated MSRs
 	 */
@@ -321,21 +326,46 @@ vmx_msr_init(void)
 void
 vmx_msr_guest_init(struct vmx *vmx, int vcpuid)
 {
-	uint64_t *guest_msrs;
-
-	guest_msrs = vmx->guest_msrs[vcpuid];
+	uint64_t *guest_msrs = vmx->guest_msrs[vcpuid];
 
 	/*
-	 * The permissions bitmap is shared between all vcpus so initialize it
-	 * once when initializing the vBSP.
+	 * It is safe to allow direct access to MSR_GSBASE and
+	 * MSR_FSBASE.  The guest FSBASE and GSBASE are saved and
+	 * restored during vm-exit and vm-entry respectively. The host
+	 * FSBASE and GSBASE are always restored from the vmcs host
+	 * state area on vm-exit.
+	 *
+	 * The SYSENTER_CS/ESP/EIP MSRs are identical to FS/GSBASE in
+	 * how they are saved/restored so can be directly accessed by
+	 * the guest.
+	 *
+	 * MSR_EFER is saved and restored in the guest VMCS area on a VM
+	 * exit and entry respectively. It is also restored from the
+	 * host VMCS area on a VM exit.
+	 *
+	 * The TSC MSR is exposed read-only. Writes are disallowed as
+	 * that will impact the host TSC.  If the guest does a write the
+	 * "use TSC offsetting" execution control is enabled and the
+	 * difference between the host TSC and the guest TSC is written
+	 * into the TSC offset in the VMCS.
 	 */
-	if (vcpuid == 0) {
-		guest_msr_rw(vmx, MSR_LSTAR);
-		guest_msr_rw(vmx, MSR_CSTAR);
-		guest_msr_rw(vmx, MSR_STAR);
-		guest_msr_rw(vmx, MSR_SF_MASK);
-		guest_msr_rw(vmx, MSR_KGSBASE);
-	}
+	guest_msr_rw(vmx, vcpuid, MSR_GSBASE);
+	guest_msr_rw(vmx, vcpuid, MSR_FSBASE);
+	guest_msr_rw(vmx, vcpuid, MSR_SYSENTER_CS_MSR);
+	guest_msr_rw(vmx, vcpuid, MSR_SYSENTER_ESP_MSR);
+	guest_msr_rw(vmx, vcpuid, MSR_SYSENTER_EIP_MSR);
+	guest_msr_rw(vmx, vcpuid, MSR_EFER);
+	guest_msr_ro(vmx, vcpuid, MSR_TSC);
+
+	/*
+	 * The guest may have direct access to these MSRs as they are
+	 * saved/restored in vmx_msr_guest_enter() and vmx_msr_guest_exit().
+	 */
+	guest_msr_rw(vmx, vcpuid, MSR_LSTAR);
+	guest_msr_rw(vmx, vcpuid, MSR_CSTAR);
+	guest_msr_rw(vmx, vcpuid, MSR_STAR);
+	guest_msr_rw(vmx, vcpuid, MSR_SF_MASK);
+	guest_msr_rw(vmx, vcpuid, MSR_KGSBASE);
 
 	/*
 	 * Initialize guest IA32_PAT MSR with default value after reset.
@@ -354,8 +384,6 @@ void
 vmx_msr_guest_enter(struct vmx *vmx, int vcpuid)
 {
 	uint64_t *guest_msrs = vmx->guest_msrs[vcpuid];
-
-#ifndef __FreeBSD__
 	uint64_t *host_msrs = vmx->host_msrs[vcpuid];
 
 	/* Save host MSRs */
@@ -363,12 +391,8 @@ vmx_msr_guest_enter(struct vmx *vmx, int vcpuid)
 	host_msrs[IDX_MSR_CSTAR] = rdmsr(MSR_CSTAR);
 	host_msrs[IDX_MSR_STAR] = rdmsr(MSR_STAR);
 	host_msrs[IDX_MSR_SF_MASK] = rdmsr(MSR_SF_MASK);
-#endif /* __FreeBSD__ */
 
 	/* Save host MSRs (in particular, KGSBASE) and restore guest MSRs */
-#ifdef __FreeBSD__
-	update_pcb_bases(curpcb);
-#endif
 	wrmsr(MSR_LSTAR, guest_msrs[IDX_MSR_LSTAR]);
 	wrmsr(MSR_CSTAR, guest_msrs[IDX_MSR_CSTAR]);
 	wrmsr(MSR_STAR, guest_msrs[IDX_MSR_STAR]);
@@ -380,9 +404,7 @@ void
 vmx_msr_guest_exit(struct vmx *vmx, int vcpuid)
 {
 	uint64_t *guest_msrs = vmx->guest_msrs[vcpuid];
-#ifndef __FreeBSD__
 	uint64_t *host_msrs = vmx->host_msrs[vcpuid];
-#endif
 
 	/* Save guest MSRs */
 	guest_msrs[IDX_MSR_LSTAR] = rdmsr(MSR_LSTAR);

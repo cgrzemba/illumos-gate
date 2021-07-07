@@ -57,6 +57,11 @@ struct vm_memmap {
 #define	VM_MEMMAP_F_WIRED	0x01
 #define	VM_MEMMAP_F_IOMMU	0x02
 
+struct vm_munmap {
+	vm_paddr_t	gpa;
+	size_t		len;
+};
+
 #define	VM_MEMSEG_NAME(m)	((m)->name[0] != '\0' ? (m)->name : NULL)
 struct vm_memseg {
 	int		segid;
@@ -160,11 +165,7 @@ struct vm_nmi {
 	int		cpuid;
 };
 
-#ifdef __FreeBSD__
-#define	MAX_VM_STATS	64
-#else
 #define	MAX_VM_STATS	(64 + VM_MAXCPU)
-#endif
 
 struct vm_stats {
 	int		cpuid;				/* in */
@@ -325,6 +326,8 @@ struct vm_run_state {
 #define	VM_ALLOC_MEMSEG		(VMM_LOCK_IOC_BASE | 0x05)
 #define	VM_MMAP_MEMSEG		(VMM_LOCK_IOC_BASE | 0x06)
 #define	VM_PMTMR_LOCATE		(VMM_LOCK_IOC_BASE | 0x07)
+#define	VM_MUNMAP_MEMSEG	(VMM_LOCK_IOC_BASE | 0x08)
+#define	VM_UNMAP_PPTDEV_MMIO	(VMM_LOCK_IOC_BASE | 0x09)
 
 #define	VM_WRLOCK_CYCLE		(VMM_LOCK_IOC_BASE | 0xff)
 

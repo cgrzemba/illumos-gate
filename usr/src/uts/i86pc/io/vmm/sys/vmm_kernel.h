@@ -39,7 +39,8 @@
  *
  * Copyright 2015 Pluribus Networks Inc.
  * Copyright 2019 Joyent, Inc.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Company
+ * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #ifndef _VMM_KERNEL_H_
@@ -85,10 +86,8 @@ typedef struct vmspace *(*vmi_vmspace_alloc)(vm_offset_t min, vm_offset_t max);
 typedef void	(*vmi_vmspace_free)(struct vmspace *vmspace);
 typedef struct vlapic *(*vmi_vlapic_init)(void *vmi, int vcpu);
 typedef void	(*vmi_vlapic_cleanup)(void *vmi, struct vlapic *vlapic);
-#ifndef __FreeBSD__
 typedef void	(*vmi_savectx)(void *vmi, int vcpu);
 typedef void	(*vmi_restorectx)(void *vmi, int vcpu);
-#endif
 
 struct vmm_ops {
 	vmm_init_func_t		init;		/* module wide initialization */
@@ -109,10 +108,8 @@ struct vmm_ops {
 	vmi_vlapic_init		vlapic_init;
 	vmi_vlapic_cleanup	vlapic_cleanup;
 
-#ifndef __FreeBSD__
 	vmi_savectx		vmsavectx;
 	vmi_restorectx		vmrestorectx;
-#endif
 };
 
 extern struct vmm_ops vmm_ops_intel;
@@ -133,17 +130,13 @@ int vm_set_topology(struct vm *vm, uint16_t sockets, uint16_t cores,
  */
 int vm_mmap_memseg(struct vm *vm, vm_paddr_t gpa, int segid, vm_ooffset_t off,
     size_t len, int prot, int flags);
+int vm_munmap_memseg(struct vm *vm, vm_paddr_t gpa, size_t len);
 int vm_alloc_memseg(struct vm *vm, int ident, size_t len, bool sysmem);
 void vm_free_memseg(struct vm *vm, int ident);
 int vm_map_mmio(struct vm *vm, vm_paddr_t gpa, size_t len, vm_paddr_t hpa);
 int vm_unmap_mmio(struct vm *vm, vm_paddr_t gpa, size_t len);
-#ifdef __FreeBSD__
-int vm_assign_pptdev(struct vm *vm, int bus, int slot, int func);
-int vm_unassign_pptdev(struct vm *vm, int bus, int slot, int func);
-#else
 int vm_assign_pptdev(struct vm *vm, int pptfd);
 int vm_unassign_pptdev(struct vm *vm, int pptfd);
-#endif /* __FreeBSD__ */
 
 /*
  * APIs that inspect the guest memory map require only a *single* vcpu to
@@ -378,8 +371,6 @@ enum event_inject_state {
 	EIS_REQ_EXIT	= (1 << 15),
 };
 
-#ifndef	__FreeBSD__
-
 void vmm_sol_glue_init(void);
 void vmm_sol_glue_cleanup(void);
 
@@ -405,6 +396,34 @@ int vm_ioport_detach(struct vm *vm, void **cookie, ioport_handler_t *old_func,
 int vm_ioport_hook(struct vm *, uint16_t, ioport_handler_t, void *, void **);
 void vm_ioport_unhook(struct vm *, void **);
 
-#endif /* __FreeBSD */
+enum vcpu_ustate {
+	VU_INIT = 0,	/* initialized but has not yet attempted to run */
+	VU_RUN,		/* running in guest context */
+	VU_IDLE,	/* idle (HLTed, wait-for-SIPI, etc) */
+	VU_EMU_KERN,	/* emulation performed in-kernel */
+	VU_EMU_USER,	/* emulation performed in userspace */
+	VU_SCHED,	/* off-cpu for interrupt, preempt, lock contention */
+	VU_MAX
+};
+
+void vcpu_ustate_change(struct vm *, int, enum vcpu_ustate);
+
+typedef struct vmm_kstats {
+	kstat_named_t	vk_name;
+} vmm_kstats_t;
+
+typedef struct vmm_vcpu_kstats {
+	kstat_named_t	vvk_vcpu;
+	kstat_named_t	vvk_time_init;
+	kstat_named_t	vvk_time_run;
+	kstat_named_t	vvk_time_idle;
+	kstat_named_t	vvk_time_emu_kern;
+	kstat_named_t	vvk_time_emu_user;
+	kstat_named_t	vvk_time_sched;
+} vmm_vcpu_kstats_t;
+
+#define	VMM_KSTAT_CLASS	"misc"
+
+int vmm_kstat_update_vcpu(struct kstat *, int);
 
 #endif /* _VMM_KERNEL_H_ */

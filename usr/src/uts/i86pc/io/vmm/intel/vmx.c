@@ -40,7 +40,7 @@
  *
  * Copyright 2015 Pluribus Networks Inc.
  * Copyright 2018 Joyent, Inc.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Company
  */
 
 #include <sys/cdefs.h>
@@ -55,16 +55,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/proc.h>
 #include <sys/sysctl.h>
 
-#ifndef __FreeBSD__
 #include <sys/x86_archext.h>
 #include <sys/smp_impldefs.h>
 #include <sys/smt.h>
 #include <sys/hma.h>
 #include <sys/trap.h>
-#endif
-
-#include <vm/vm.h>
-#include <vm/pmap.h>
 
 #include <machine/psl.h>
 #include <machine/cpufunc.h>
@@ -74,6 +69,7 @@ __FBSDID("$FreeBSD$");
 #include <machine/smp.h>
 #include <machine/specialreg.h>
 #include <machine/vmparam.h>
+#include <sys/vmm_vm.h>
 
 #include <machine/vmm.h>
 #include <machine/vmm_dev.h>
@@ -104,17 +100,6 @@ __FBSDID("$FreeBSD$");
 	(PROCBASED_INT_WINDOW_EXITING	|				\
 	PROCBASED_NMI_WINDOW_EXITING)
 
-#ifdef __FreeBSD__
-#define	PROCBASED_CTLS_ONE_SETTING					\
-	(PROCBASED_SECONDARY_CONTROLS	|				\
-	PROCBASED_MWAIT_EXITING		|				\
-	PROCBASED_MONITOR_EXITING	|				\
-	PROCBASED_IO_EXITING		|				\
-	PROCBASED_MSR_BITMAPS		|				\
-	PROCBASED_CTLS_WINDOW_SETTING	|				\
-	PROCBASED_CR8_LOAD_EXITING	|				\
-	PROCBASED_CR8_STORE_EXITING)
-#else
 /* We consider TSC offset a necessity for unsynched TSC handling */
 #define	PROCBASED_CTLS_ONE_SETTING					\
 	(PROCBASED_SECONDARY_CONTROLS	|				\
@@ -126,7 +111,6 @@ __FBSDID("$FreeBSD$");
 	PROCBASED_CTLS_WINDOW_SETTING	|				\
 	PROCBASED_CR8_LOAD_EXITING	|				\
 	PROCBASED_CR8_STORE_EXITING)
-#endif /* __FreeBSD__ */
 
 #define	PROCBASED_CTLS_ZERO_SETTING	\
 	(PROCBASED_CR3_LOAD_EXITING |	\
@@ -186,12 +170,6 @@ static int no_flush_rsb;
 /*
  * Optional capabilities
  */
-#ifdef __FreeBSD__
-SYSCTL_DECL(_hw_vmm_vmx);
-static SYSCTL_NODE(_hw_vmm_vmx, OID_AUTO, cap,
-    CTLFLAG_RW | CTLFLAG_MPSAFE, NULL,
-    NULL);
-#endif
 
 /* HLT triggers a VM-exit */
 static int cap_halt_exit;
@@ -211,9 +189,6 @@ static enum vmx_caps vmx_capabilities;
 /* APICv posted interrupt vector */
 static int pirvec = -1;
 
-#ifdef __FreeBSD__
-static struct unrhdr *vpid_unr;
-#endif /* __FreeBSD__ */
 static uint_t vpid_alloc_failed;
 
 int guest_l1d_flush;
@@ -309,13 +284,6 @@ SDT_PROBE_DEFINE4(vmm, vmx, exit, return,
     "struct vmx *", "int", "struct vm_exit *", "int");
 /* END CSTYLED */
 
-/*
- * Use the last page below 4GB as the APIC access address. This address is
- * occupied by the boot firmware so it is guaranteed that it will not conflict
- * with a page in system memory.
- */
-#define	APIC_ACCESS_ADDRESS	0xFFFFF000
-
 static int vmx_getdesc(void *arg, int vcpu, int reg, struct seg_desc *desc);
 static int vmx_getreg(void *arg, int vcpu, int reg, uint64_t *retval);
 static void vmx_apply_tsc_adjust(struct vmx *, int);
@@ -323,40 +291,33 @@ static void vmx_apicv_sync_tmr(struct vlapic *vlapic);
 static void vmx_tpr_shadow_enter(struct vlapic *vlapic);
 static void vmx_tpr_shadow_exit(struct vlapic *vlapic);
 
-static int
-vmx_allow_x2apic_msrs(struct vmx *vmx)
+static void
+vmx_allow_x2apic_msrs(struct vmx *vmx, int vcpuid)
 {
-	int i, error;
-
-	error = 0;
-
 	/*
 	 * Allow readonly access to the following x2APIC MSRs from the guest.
 	 */
-	error += guest_msr_ro(vmx, MSR_APIC_ID);
-	error += guest_msr_ro(vmx, MSR_APIC_VERSION);
-	error += guest_msr_ro(vmx, MSR_APIC_LDR);
-	error += guest_msr_ro(vmx, MSR_APIC_SVR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ID);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_VERSION);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LDR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_SVR);
 
-	for (i = 0; i < 8; i++)
-		error += guest_msr_ro(vmx, MSR_APIC_ISR0 + i);
+	for (uint_t i = 0; i < 8; i++) {
+		guest_msr_ro(vmx, vcpuid, MSR_APIC_ISR0 + i);
+		guest_msr_ro(vmx, vcpuid, MSR_APIC_TMR0 + i);
+		guest_msr_ro(vmx, vcpuid, MSR_APIC_IRR0 + i);
+	}
 
-	for (i = 0; i < 8; i++)
-		error += guest_msr_ro(vmx, MSR_APIC_TMR0 + i);
-
-	for (i = 0; i < 8; i++)
-		error += guest_msr_ro(vmx, MSR_APIC_IRR0 + i);
-
-	error += guest_msr_ro(vmx, MSR_APIC_ESR);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_TIMER);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_THERMAL);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_PCINT);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_LINT0);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_LINT1);
-	error += guest_msr_ro(vmx, MSR_APIC_LVT_ERROR);
-	error += guest_msr_ro(vmx, MSR_APIC_ICR_TIMER);
-	error += guest_msr_ro(vmx, MSR_APIC_DCR_TIMER);
-	error += guest_msr_ro(vmx, MSR_APIC_ICR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ESR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_TIMER);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_THERMAL);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_PCINT);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_LINT0);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_LINT1);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_LVT_ERROR);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ICR_TIMER);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_DCR_TIMER);
+	guest_msr_ro(vmx, vcpuid, MSR_APIC_ICR);
 
 	/*
 	 * Allow TPR, EOI and SELF_IPI MSRs to be read and written by the guest.
@@ -364,11 +325,9 @@ vmx_allow_x2apic_msrs(struct vmx *vmx)
 	 * These registers get special treatment described in the section
 	 * "Virtualizing MSR-Based APIC Accesses".
 	 */
-	error += guest_msr_rw(vmx, MSR_APIC_TPR);
-	error += guest_msr_rw(vmx, MSR_APIC_EOI);
-	error += guest_msr_rw(vmx, MSR_APIC_SELF_IPI);
-
-	return (error);
+	guest_msr_rw(vmx, vcpuid, MSR_APIC_TPR);
+	guest_msr_rw(vmx, vcpuid, MSR_APIC_EOI);
+	guest_msr_rw(vmx, vcpuid, MSR_APIC_SELF_IPI);
 }
 
 static ulong_t
@@ -395,11 +354,7 @@ vpid_free(int vpid)
 	 */
 
 	if (vpid > VM_MAXCPU)
-#ifdef __FreeBSD__
-		free_unr(vpid_unr, vpid);
-#else
 		hma_vmx_vpid_free((uint16_t)vpid);
-#endif
 }
 
 static void
@@ -424,14 +379,11 @@ vpid_alloc(uint16_t *vpid, int num)
 	 * Allocate a unique VPID for each vcpu from the unit number allocator.
 	 */
 	for (i = 0; i < num; i++) {
-#ifdef __FreeBSD__
-		x = alloc_unr(vpid_unr);
-#else
 		uint16_t tmp;
 
 		tmp = hma_vmx_vpid_alloc();
 		x = (tmp == 0) ? -1 : tmp;
-#endif
+
 		if (x == -1)
 			break;
 		else
@@ -686,31 +638,8 @@ vmx_init(int ipinum)
 static void
 vmx_trigger_hostintr(int vector)
 {
-#ifdef __FreeBSD__
-	uintptr_t func;
-	struct gate_descriptor *gd;
-
-	gd = &idt[vector];
-
-	KASSERT(vector >= 32 && vector <= 255, ("vmx_trigger_hostintr: "
-	    "invalid vector %d", vector));
-	KASSERT(gd->gd_p == 1, ("gate descriptor for vector %d not present",
-	    vector));
-	KASSERT(gd->gd_type == SDT_SYSIGT, ("gate descriptor for vector %d "
-	    "has invalid type %d", vector, gd->gd_type));
-	KASSERT(gd->gd_dpl == SEL_KPL, ("gate descriptor for vector %d "
-	    "has invalid dpl %d", vector, gd->gd_dpl));
-	KASSERT(gd->gd_selector == GSEL(GCODE_SEL, SEL_KPL), ("gate descriptor "
-	    "for vector %d has invalid selector %d", vector, gd->gd_selector));
-	KASSERT(gd->gd_ist == 0, ("gate descriptor for vector %d has invalid "
-	    "IST %d", vector, gd->gd_ist));
-
-	func = ((long)gd->gd_hioffset << 16 | gd->gd_looffset);
-	vmx_call_isr(func);
-#else
 	VERIFY(vector >= 32 && vector <= 255);
 	vmx_call_isr(vector - 32);
-#endif /* __FreeBSD__ */
 }
 
 static void *
@@ -722,6 +651,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 	uint32_t exc_bitmap;
 	uint16_t maxcpus;
 	uint32_t proc_ctls, proc2_ctls, pin_ctls;
+	uint64_t apic_access_pa = UINT64_MAX;
 
 	vmx = malloc(sizeof (struct vmx), M_VMX, M_WAITOK | M_ZERO);
 	if ((uintptr_t)vmx & PAGE_MASK) {
@@ -743,36 +673,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 	 */
 	ept_invalidate_mappings(vmx->eptp);
 
-	msr_bitmap_initialize(vmx->msr_bitmap);
-
-	/*
-	 * It is safe to allow direct access to MSR_GSBASE and MSR_FSBASE.
-	 * The guest FSBASE and GSBASE are saved and restored during
-	 * vm-exit and vm-entry respectively. The host FSBASE and GSBASE are
-	 * always restored from the vmcs host state area on vm-exit.
-	 *
-	 * The SYSENTER_CS/ESP/EIP MSRs are identical to FS/GSBASE in
-	 * how they are saved/restored so can be directly accessed by the
-	 * guest.
-	 *
-	 * MSR_EFER is saved and restored in the guest VMCS area on a
-	 * VM exit and entry respectively. It is also restored from the
-	 * host VMCS area on a VM exit.
-	 *
-	 * The TSC MSR is exposed read-only. Writes are disallowed as
-	 * that will impact the host TSC.  If the guest does a write
-	 * the "use TSC offsetting" execution control is enabled and the
-	 * difference between the host TSC and the guest TSC is written
-	 * into the TSC offset in the VMCS.
-	 */
-	if (guest_msr_rw(vmx, MSR_GSBASE) ||
-	    guest_msr_rw(vmx, MSR_FSBASE) ||
-	    guest_msr_rw(vmx, MSR_SYSENTER_CS_MSR) ||
-	    guest_msr_rw(vmx, MSR_SYSENTER_ESP_MSR) ||
-	    guest_msr_rw(vmx, MSR_SYSENTER_EIP_MSR) ||
-	    guest_msr_rw(vmx, MSR_EFER) ||
-	    guest_msr_ro(vmx, MSR_TSC))
-		panic("vmx_vminit: error setting guest msr access");
+	vmx_msr_bitmap_initialize(vmx);
 
 	vpid_alloc(vpid, VM_MAXCPU);
 
@@ -795,8 +696,17 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 		    PROCBASED2_APIC_REGISTER_VIRTUALIZATION |
 		    PROCBASED2_VIRTUAL_INTERRUPT_DELIVERY);
 
+		/*
+		 * Allocate a page of memory to back the APIC access address for
+		 * when APICv features are in use.  Guest MMIO accesses should
+		 * never actually reach this page, but rather be intercepted.
+		 */
+		vmx->apic_access_page = kmem_zalloc(PAGESIZE, KM_SLEEP);
+		VERIFY3U((uintptr_t)vmx->apic_access_page & PAGEOFFSET, ==, 0);
+		apic_access_pa = vtophys(vmx->apic_access_page);
+
 		error = vm_map_mmio(vm, DEFAULT_APIC_BASE, PAGE_SIZE,
-		    APIC_ACCESS_ADDRESS);
+		    apic_access_pa);
 		/* XXX this should really return an error to the caller */
 		KASSERT(error == 0, ("vm_map_mmio(apicbase) error %d", error));
 	}
@@ -814,7 +724,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 		 * may be required inside the critical_enter() section implied
 		 * by VMPTRLD() below.
 		 */
-		vm_paddr_t msr_bitmap_pa = vtophys(vmx->msr_bitmap);
+		vm_paddr_t msr_bitmap_pa = vtophys(vmx->msr_bitmap[i]);
 		vm_paddr_t apic_page_pa = vtophys(&vmx->apic_page[i]);
 		vm_paddr_t pir_desc_pa = vtophys(&vmx->pir_desc[i]);
 
@@ -896,7 +806,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 		}
 
 		if (vmx_cap_en(vmx, VMX_CAP_APICV)) {
-			vmcs_write(VMCS_APIC_ACCESS, APIC_ACCESS_ADDRESS);
+			vmcs_write(VMCS_APIC_ACCESS, apic_access_pa);
 			vmcs_write(VMCS_EOI_EXIT0, 0);
 			vmcs_write(VMCS_EOI_EXIT1, 0);
 			vmcs_write(VMCS_EOI_EXIT2, 0);
@@ -939,13 +849,7 @@ vmx_vminit(struct vm *vm, pmap_t pmap)
 static int
 vmx_handle_cpuid(struct vm *vm, int vcpu, struct vmxctx *vmxctx)
 {
-#ifdef __FreeBSD__
-	int handled, func;
-
-	func = vmxctx->guest_rax;
-#else
 	int handled;
-#endif
 
 	handled = x86_emulate_cpuid(vm, vcpu, (uint64_t *)&vmxctx->guest_rax,
 	    (uint64_t *)&vmxctx->guest_rbx, (uint64_t *)&vmxctx->guest_rcx,
@@ -1022,11 +926,6 @@ vmx_invvpid(struct vmx *vmx, int vcpu, pmap_t pmap, int running)
 		vmxstate->lastcpu = NOCPU;
 		return;
 	}
-
-#ifdef __FreeBSD__
-	KASSERT(curthread->td_critnest > 0, ("%s: vcpu %d running outside "
-	    "critical section", __func__, vcpu));
-#endif
 
 	/*
 	 * Invalidate all mappings tagged with 'vpid'
@@ -1870,11 +1769,11 @@ ept_fault_type(uint64_t ept_qual)
 	int fault_type;
 
 	if (ept_qual & EPT_VIOLATION_DATA_WRITE)
-		fault_type = VM_PROT_WRITE;
+		fault_type = PROT_WRITE;
 	else if (ept_qual & EPT_VIOLATION_INST_FETCH)
-		fault_type = VM_PROT_EXECUTE;
+		fault_type = PROT_EXEC;
 	else
-		fault_type = VM_PROT_READ;
+		fault_type = PROT_READ;
 
 	return (fault_type);
 }
@@ -2122,10 +2021,6 @@ emulate_rdmsr(struct vmx *vmx, int vcpuid, uint_t num)
 	return (error);
 }
 
-#ifndef __FreeBSD__
-#define	__predict_false(x)	(x)
-#endif
-
 static int
 vmx_exit_process(struct vmx *vmx, int vcpu, struct vm_exit *vmexit)
 {
@@ -2157,13 +2052,9 @@ vmx_exit_process(struct vmx *vmx, int vcpu, struct vm_exit *vmexit)
 	 * These VM-exits are uncommon but must be handled specially
 	 * as most VM-exit fields are not populated as usual.
 	 */
-	if (__predict_false(reason == EXIT_REASON_MCE_DURING_ENTRY)) {
+	if (reason == EXIT_REASON_MCE_DURING_ENTRY) {
 		VCPU_CTR0(vmx->vm, vcpu, "Handling MCE during VM-entry");
-#ifdef __FreeBSD__
-		__asm __volatile("int $18");
-#else
 		vmm_call_trap(T_MCE);
-#endif
 		return (1);
 	}
 
@@ -2424,11 +2315,7 @@ vmx_exit_process(struct vmx *vmx, int vcpu, struct vm_exit *vmexit)
 		 */
 		if (intr_vec == IDT_MC) {
 			VCPU_CTR0(vmx->vm, vcpu, "Vectoring to MCE handler");
-#ifdef __FreeBSD__
-			__asm __volatile("int $18");
-#else
 			vmm_call_trap(T_MCE);
-#endif
 			return (1);
 		}
 
@@ -2624,9 +2511,7 @@ vmx_exit_inst_error(struct vmxctx *vmxctx, int rc, struct vm_exit *vmexit)
 	case VMX_VMRESUME_ERROR:
 	case VMX_VMLAUNCH_ERROR:
 	case VMX_INVEPT_ERROR:
-#ifndef __FreeBSD__
 	case VMX_VMWRITE_ERROR:
-#endif
 		vmexit->u.vmx.inst_type = rc;
 		break;
 	default:
@@ -2660,11 +2545,7 @@ vmx_exit_handle_nmi(struct vmx *vmx, int vcpuid, struct vm_exit *vmexit)
 		KASSERT((intr_info & 0xff) == IDT_NMI, ("VM exit due "
 		    "to NMI has invalid vector: %x", intr_info));
 		VCPU_CTR0(vmx->vm, vcpuid, "Vectoring to NMI handler");
-#ifdef __FreeBSD__
-		__asm __volatile("int $2");
-#else
 		vmm_call_trap(T_NMIFLT);
-#endif
 	}
 }
 
@@ -2746,10 +2627,6 @@ vmx_run(void *arg, int vcpu, uint64_t rip, pmap_t pmap)
 	struct vm_exit *vmexit;
 	struct vlapic *vlapic;
 	uint32_t exit_reason;
-#ifdef __FreeBSD__
-	struct region_descriptor gdtr, idtr;
-	uint16_t ldt_sel;
-#endif
 	bool tpr_shadow_active;
 
 	vmx = arg;
@@ -2770,10 +2647,8 @@ vmx_run(void *arg, int vcpu, uint64_t rip, pmap_t pmap)
 
 	vmcs_load(vmcs_pa);
 
-#ifndef __FreeBSD__
 	VERIFY(vmx->vmcs_state[vcpu] == VS_NONE && curthread->t_preempt != 0);
 	vmx->vmcs_state[vcpu] = VS_LOADED;
-#endif
 
 	/*
 	 * XXX
@@ -2855,7 +2730,6 @@ vmx_run(void *arg, int vcpu, uint64_t rip, pmap_t pmap)
 			continue;
 		}
 
-#ifndef __FreeBSD__
 		if ((rc = smt_acquire()) != 1) {
 			enable_intr();
 			vmexit->rip = rip;
@@ -2895,41 +2769,20 @@ vmx_run(void *arg, int vcpu, uint64_t rip, pmap_t pmap)
 			handled = UNHANDLED;
 			break;
 		}
-#else
-		/*
-		 * VM exits restore the base address but not the
-		 * limits of GDTR and IDTR.  The VMCS only stores the
-		 * base address, so VM exits set the limits to 0xffff.
-		 * Save and restore the full GDTR and IDTR to restore
-		 * the limits.
-		 *
-		 * The VMCS does not save the LDTR at all, and VM
-		 * exits clear LDTR as if a NULL selector were loaded.
-		 * The userspace hypervisor probably doesn't use a
-		 * LDT, but save and restore it to be safe.
-		 */
-		sgdt(&gdtr);
-		sidt(&idtr);
-		ldt_sel = sldt();
-#endif
 
 		if (tpr_shadow_active) {
 			vmx_tpr_shadow_enter(vlapic);
 		}
 
 		vmx_run_trace(vmx, vcpu);
+		vcpu_ustate_change(vm, vcpu, VU_RUN);
 		vmx_dr_enter_guest(vmxctx);
 		rc = vmx_enter_guest(vmxctx, vmx, launched);
 		vmx_dr_leave_guest(vmxctx);
+		vcpu_ustate_change(vm, vcpu, VU_EMU_KERN);
 
-#ifndef	__FreeBSD__
 		vmx->vmcs_state[vcpu] |= VS_LAUNCHED;
 		smt_release();
-#else
-		bare_lgdt(&gdtr);
-		lidt(&idtr);
-		lldt(ldt_sel);
-#endif
 
 		if (tpr_shadow_active) {
 			vmx_tpr_shadow_exit(vlapic);
@@ -2952,9 +2805,6 @@ vmx_run(void *arg, int vcpu, uint64_t rip, pmap_t pmap)
 			enable_intr();
 			vmx_exit_inst_error(vmxctx, rc, vmexit);
 		}
-#ifdef	__FreeBSD__
-		launched = 1;
-#endif
 		DTRACE_PROBE3(vmm__vexit, int, vcpu, uint64_t, rip,
 		    uint32_t, exit_reason);
 		rip = vmexit->rip;
@@ -2972,10 +2822,8 @@ vmx_run(void *arg, int vcpu, uint64_t rip, pmap_t pmap)
 	vmcs_clear(vmcs_pa);
 	vmx_msr_guest_exit(vmx, vcpu);
 
-#ifndef __FreeBSD__
 	VERIFY(vmx->vmcs_state != VS_NONE && curthread->t_preempt != 0);
 	vmx->vmcs_state[vcpu] = VS_NONE;
-#endif
 
 	return (0);
 }
@@ -2987,8 +2835,14 @@ vmx_vmcleanup(void *arg)
 	struct vmx *vmx = arg;
 	uint16_t maxcpus;
 
-	if (apic_access_virtualization(vmx, 0))
+	if (vmx_cap_en(vmx, VMX_CAP_APICV)) {
 		vm_unmap_mmio(vmx->vm, DEFAULT_APIC_BASE, PAGE_SIZE);
+		kmem_free(vmx->apic_access_page, PAGESIZE);
+	} else {
+		VERIFY3P(vmx->apic_access_page, ==, NULL);
+	}
+
+	vmx_msr_bitmap_destroy(vmx);
 
 	maxcpus = vm_get_maxcpus(vmx->vm);
 	for (i = 0; i < maxcpus; i++)
@@ -3553,7 +3407,7 @@ vmx_enable_x2apic_mode_vid(struct vlapic *vlapic)
 {
 	struct vmx *vmx;
 	uint32_t proc_ctls2;
-	int vcpuid, error;
+	int vcpuid;
 
 	vcpuid = vlapic->vcpuid;
 	vmx = ((struct vlapic_vtx *)vlapic)->vmx;
@@ -3570,23 +3424,7 @@ vmx_enable_x2apic_mode_vid(struct vlapic *vlapic)
 	vmcs_write(VMCS_SEC_PROC_BASED_CTLS, proc_ctls2);
 	vmcs_clear(vmx->vmcs_pa[vcpuid]);
 
-	if (vlapic->vcpuid == 0) {
-		/*
-		 * The nested page table mappings are shared by all vcpus
-		 * so unmap the APIC access page just once.
-		 */
-		error = vm_unmap_mmio(vmx->vm, DEFAULT_APIC_BASE, PAGE_SIZE);
-		KASSERT(error == 0, ("%s: vm_unmap_mmio error %d",
-		    __func__, error));
-
-		/*
-		 * The MSR bitmap is shared by all vcpus so modify it only
-		 * once in the context of vcpu 0.
-		 */
-		error = vmx_allow_x2apic_msrs(vmx);
-		KASSERT(error == 0, ("%s: vmx_allow_x2apic_msrs error %d",
-		    __func__, error));
-	}
+	vmx_allow_x2apic_msrs(vmx, vcpuid);
 }
 
 static void
@@ -3731,7 +3569,6 @@ vmx_vlapic_cleanup(void *arg, struct vlapic *vlapic)
 	free(vlapic, M_VLAPIC);
 }
 
-#ifndef __FreeBSD__
 static void
 vmx_savectx(void *arg, int vcpu)
 {
@@ -3762,7 +3599,6 @@ vmx_restorectx(void *arg, int vcpu)
 		vmcs_load(vmx->vmcs_pa[vcpu]);
 	}
 }
-#endif /* __FreeBSD__ */
 
 struct vmm_ops vmm_ops_intel = {
 	.init		= vmx_init,
@@ -3782,13 +3618,10 @@ struct vmm_ops vmm_ops_intel = {
 	.vlapic_init	= vmx_vlapic_init,
 	.vlapic_cleanup	= vmx_vlapic_cleanup,
 
-#ifndef __FreeBSD__
 	.vmsavectx	= vmx_savectx,
 	.vmrestorectx	= vmx_restorectx,
-#endif
 };
 
-#ifndef __FreeBSD__
 /* Side-effect free HW validation derived from checks in vmx_init. */
 int
 vmx_x86_supported(const char **msg)
@@ -3854,4 +3687,3 @@ vmx_x86_supported(const char **msg)
 
 	return (0);
 }
-#endif

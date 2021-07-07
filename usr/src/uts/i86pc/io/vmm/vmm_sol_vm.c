@@ -12,7 +12,8 @@
 
 /*
  * Copyright 2019 Joyent, Inc.
- * Copyright 2020 Oxide Computer Company
+ * Copyright 2021 Oxide Computer Company
+ * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <sys/param.h>
@@ -28,13 +29,13 @@
 #include <sys/malloc.h>
 #include <sys/x86_archext.h>
 #include <vm/as.h>
+#include <vm/hat_i86.h>
 #include <vm/seg_vn.h>
 #include <vm/seg_kmem.h>
 #include <vm/seg_vmm.h>
 
-#include <vm/vm_extern.h>
-#include <vm/vm_map.h>
-#include "vm/vm_glue.h"
+#include <machine/vm.h>
+#include <sys/vmm_vm.h>
 
 #define	PMAP_TO_VMMAP(pm)	((vm_map_t)		\
 	((caddr_t)(pm) - offsetof(struct vmspace, vms_pmap)))
@@ -450,15 +451,6 @@ vm_reserve_pages(size_t npages)
 	}
 }
 
-void
-vm_object_clear(vm_object_t vmo)
-{
-	ASSERT(vmo->vmo_type == OBJT_DEFAULT);
-
-	/* XXXJOY: Better zeroing approach? */
-	bzero(vmo->vmo_data, vmo->vmo_size);
-}
-
 vm_object_t
 vm_object_allocate(objtype_t type, vm_pindex_t psize)
 {
@@ -484,7 +476,7 @@ vm_object_allocate(objtype_t type, vm_pindex_t psize)
 			kmem_free(vmo, sizeof (*vmo));
 			return (NULL);
 		}
-		vm_object_clear(vmo);
+		bzero(vmo->vmo_data, size);
 		vmo->vmo_pager = vm_object_pager_heap;
 	}
 		break;
@@ -624,17 +616,21 @@ vm_mapping_gap(struct vmspace *vms, uintptr_t addr, size_t size)
 {
 	vmspace_mapping_t *vmsm;
 	list_t *ml = &vms->vms_maplist;
-	const uintptr_t range_end = addr + size;
+	const uintptr_t range_end = addr + size - 1;
 
 	ASSERT(MUTEX_HELD(&vms->vms_lock));
+	ASSERT(size > 0);
 
 	for (vmsm = list_head(ml); vmsm != NULL; vmsm = list_next(ml, vmsm)) {
-		const uintptr_t seg_end = vmsm->vmsm_addr + vmsm->vmsm_len;
+		const uintptr_t seg_end = vmsm->vmsm_addr + vmsm->vmsm_len - 1;
 
-		if ((vmsm->vmsm_addr >= addr && vmsm->vmsm_addr < range_end) ||
-		    (seg_end > addr && seg_end < range_end)) {
-			return (B_FALSE);
-		}
+		/*
+		 * The two ranges do not overlap if the start of either of
+		 * them is after the end of the other.
+		 */
+		if (vmsm->vmsm_addr > range_end || addr > seg_end)
+			continue;
+		return (B_FALSE);
 	}
 	return (B_TRUE);
 }

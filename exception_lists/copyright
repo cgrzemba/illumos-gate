@@ -23,9 +23,9 @@
 # Copyright 2020 Tintri by DDN, Inc. All rights reserved.
 # Copyright (c) 2009, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2011 by Delphix. All rights reserved.
-# Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
 # Copyright (c) 2018, Joyent, Inc.
 # Copyright 2020 Oxide Computer Company
+# Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
 #
 
 syntax: glob
@@ -105,6 +105,8 @@ usr/src/data/hwdata/THIRDPARTYLICENSE.efifixes.tmpl
 usr/src/data/hwdata/pci.ids
 usr/src/data/hwdata/usb.ids
 usr/src/data/perfmon/*
+usr/src/data/ucode/Makefile.links
+usr/src/data/ucode/intel/*
 usr/src/grub/grub-0.97/stage2/Makefile.am
 usr/src/grub/grub-0.97/stage2/builtins.c
 usr/src/grub/grub-0.97/stage2/disk_io.c
@@ -392,6 +394,8 @@ usr/src/test/util-tests/tests/grep_xpg4/files/test*
 usr/src/test/util-tests/tests/head/*.in
 usr/src/test/util-tests/tests/head/*.out
 usr/src/test/util-tests/tests/libsff/*.out
+usr/src/test/util-tests/tests/pcieadm/*.out
+usr/src/test/util-tests/tests/pcieadm/*.pci
 usr/src/test/zfs-tests/tests/functional/history/*Z
 usr/src/test/zfs-tests/tests/functional/history/*txt
 usr/src/tools/btxld/btx.h
@@ -469,6 +473,7 @@ usr/src/uts/common/sys/scsi/adapters/mpt_sas/mpi/*
 usr/src/uts/sparc/nsmb/ioc_check.ref
 
 # bhyve sources
+usr/src/cmd/bhyve/README.sync
 usr/src/cmd/bhyve/THIRDPARTYLICENSE
 usr/src/cmd/bhyve/THIRDPARTYLICENSE.descrip
 usr/src/cmd/bhyve/acpi.[ch]
@@ -478,21 +483,26 @@ usr/src/cmd/bhyve/bhyvegc.[ch]
 usr/src/cmd/bhyve/bhyverun.[ch]
 usr/src/cmd/bhyve/block_if.[ch]
 usr/src/cmd/bhyve/bootrom.[ch]
+usr/src/cmd/bhyve/config.[ch]
 usr/src/cmd/bhyve/console.[ch]
 usr/src/cmd/bhyve/consport.c
 usr/src/cmd/bhyve/dbgport.[ch]
 usr/src/cmd/bhyve/fwctl.[ch]
 usr/src/cmd/bhyve/gdb.[ch]
+usr/src/cmd/bhyve/hda_codec.c
 usr/src/cmd/bhyve/inout.[ch]
 usr/src/cmd/bhyve/ioapic.[ch]
 usr/src/cmd/bhyve/mem.[ch]
 usr/src/cmd/bhyve/mevent.[ch]
 usr/src/cmd/bhyve/mevent_test.c
 usr/src/cmd/bhyve/mptbl.[ch]
+usr/src/cmd/bhyve/net_backends.[ch]
+usr/src/cmd/bhyve/net_utils.[ch]
 usr/src/cmd/bhyve/pci_ahci.c
 usr/src/cmd/bhyve/pci_e82545.c
 usr/src/cmd/bhyve/pci_emul.[ch]
 usr/src/cmd/bhyve/pci_fbuf.c
+usr/src/cmd/bhyve/pci_hda.[ch]
 usr/src/cmd/bhyve/pci_hostbridge.c
 usr/src/cmd/bhyve/pci_irq.[ch]
 usr/src/cmd/bhyve/pci_lpc.[ch]
@@ -500,10 +510,13 @@ usr/src/cmd/bhyve/pci_nvme.c
 usr/src/cmd/bhyve/pci_passthru.c
 usr/src/cmd/bhyve/pci_uart.c
 usr/src/cmd/bhyve/pci_virtio_block.c
+usr/src/cmd/bhyve/pci_virtio_console.c
 usr/src/cmd/bhyve/pci_virtio_net.c
 usr/src/cmd/bhyve/pci_virtio_rnd.c
 usr/src/cmd/bhyve/pci_virtio_scsi.c
+usr/src/cmd/bhyve/pci_virtio_viona.c
 usr/src/cmd/bhyve/pci_xhci.[ch]
+usr/src/cmd/bhyve/pctestdev.[ch]
 usr/src/cmd/bhyve/pm.c
 usr/src/cmd/bhyve/pmtmr.c
 usr/src/cmd/bhyve/post.c

@@ -21,7 +21,6 @@
 
 /*
  * Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, Enrico Papi <enricop@computer.org>. All rights reserved.
  */
 
 #include <arpa/inet.h>
@@ -864,8 +863,7 @@ nwamd_ncu_handle_if_state_event(nwamd_event_t event)
 		struct nwam_event_if_state *if_state;
 		char addrstr[INET6_ADDRSTRLEN];
 		boolean_t static_addr = B_FALSE, addr_added;
-		boolean_t v4dhcp_running = B_FALSE, v6dhcp_running = B_FALSE;
-		boolean_t stateless_running = B_FALSE;
+		boolean_t v4dhcp_running, v6dhcp_running, stateless_running;
 		ipadm_addr_info_t *ai = NULL, *addrinfo = NULL;
 		boolean_t stateless_ai_found = B_FALSE;
 		boolean_t stateful_ai_found = B_FALSE;
@@ -880,6 +878,10 @@ nwamd_ncu_handle_if_state_event(nwamd_event_t event)
 		family = if_state->nwe_addr.ss_family;
 		addr = &if_state->nwe_addr;
 		addr_added = if_state->nwe_addr_added;
+
+		v4dhcp_running = B_FALSE;
+		v6dhcp_running = B_FALSE;
+		stateless_running = B_FALSE;
 
 		nlog(LOG_DEBUG,
 		    "nwamd_ncu_handle_if_state_event: addr %s %s",

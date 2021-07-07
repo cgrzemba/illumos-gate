@@ -54,7 +54,6 @@ LDLIBS +=	-ldhcpagent -ldhcputil -ldladm -ldlpi -lgen \
 		-linetutil -lipadm -lkstat -lnsl -lnvpair -lnwam \
 		-lsecdb -lscf -lsocket -lsysevent -lumem -luutil
 
-CERRWARN +=	$(CNOWARN_UNINIT)
 CERRWARN +=	-_gcc=-Wno-parentheses
 CERRWARN +=	-_gcc=-Wno-switch
 CERRWARN +=	-_gcc=-Wno-unused-label
@@ -88,8 +87,6 @@ $(ROOTCMD): all
 
 clean:
 	$(RM) $(OBJS)
-
-lint:	lint_SRCS
 
 $(ROOTCFGDIR):
 	$(INS.dir)

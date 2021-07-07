@@ -49,15 +49,11 @@ __FBSDID("$FreeBSD$");
 #include <sys/systm.h>
 #include <sys/smp.h>
 #include <sys/sysctl.h>
-#ifndef __FreeBSD__
 #include <sys/hma.h>
-#endif
 
-#include <vm/vm.h>
-#include <vm/pmap.h>
-#include <vm/vm_extern.h>
-
+#include <machine/specialreg.h>
 #include <machine/vmm.h>
+#include <sys/vmm_vm.h>
 
 #include "ept.h"
 
